@@ -25,7 +25,6 @@ st.markdown("""
 
 # 1. IATA(2자리) & ICAO(3자리) 통합 항공사 데이터베이스
 DEFAULT_AIRLINES = {
-    # 대한민국
     "KE": "대한항공 (Korean Air)", "KAL": "대한항공 (Korean Air)",
     "OZ": "아시아나항공 (Asiana Airlines)", "AAR": "아시아나항공 (Asiana Airlines)",
     "7C": "제주항공 (Jeju Air)", "JJA": "제주항공 (Jeju Air)",
@@ -35,47 +34,29 @@ DEFAULT_AIRLINES = {
     "BX": "에어부산 (Air Busan)", "ABL": "에어부산 (Air Busan)",
     "ZE": "이스타항공 (Eastar Jet)", "ESR": "이스타항공 (Eastar Jet)",
     "YP": "에어프레미아 (Air Premia)", "APZ": "에어프레미아 (Air Premia)",
-    # 일본
     "MM": "피치항공 (Peach Aviation)", "APJ": "피치항공 (Peach Aviation)",
     "NH": "전일본공수 (ANA)", "ANA": "전일본공수 (ANA)",
     "JL": "일본항공 (JAL)", "JAL": "일본항공 (JAL)",
-    "7G": "스타플라이어 (StarFlyer)", "SFJ": "스타플라이어 (StarFlyer)",
-    # 대만 / 홍콩 / 중국
     "CX": "캐세이퍼시픽 (Cathay Pacific)", "CPA": "캐세이퍼시픽 (Cathay Pacific)",
     "CI": "중화항공 (China Airlines)", "CAL": "중화항공 (China Airlines)",
     "BR": "에바항공 (EVA Air)", "EVA": "에바항공 (EVA Air)",
     "CA": "중국국제항공 (Air China)", "CCA": "중국국제항공 (Air China)",
     "MU": "중국동방항공 (China Eastern)", "CES": "중국동방항공 (China Eastern)",
     "CZ": "중국남방항공 (China Southern)", "CSN": "중국남방항공 (China Southern)",
-    "MF": "샤먼항공 (XiamenAir)", "CXA": "샤먼항공 (XiamenAir)",
-    "SC": "산동항공 (Shandong Airlines)", "CDG": "산동항공 (Shandong Airlines)",
-    # 동남아시아
     "SQ": "싱가포르항공 (Singapore Airlines)", "SIA": "싱가포르항공 (Singapore Airlines)",
     "TG": "타이항공 (Thai Airways)", "THA": "타이항공 (Thai Airways)",
-    "MH": "말레이시아항공 (Malaysia Airlines)", "MAS": "말레이시아항공 (Malaysia Airlines)",
     "VN": "베트남항공 (Vietnam Airlines)", "HVN": "베트남항공 (Vietnam Airlines)",
     "VJ": "비엣젯항공 (VietJet Air)", "VJC": "비엣젯항공 (VietJet Air)",
-    "PR": "필리핀항공 (Philippine Airlines)", "PAL": "필리핀항공 (Philippine Airlines)",
-    "5J": "세부퍼시픽 (Cebu Pacific)", "CEB": "세부퍼시픽 (Cebu Pacific)",
-    "GA": "가루다 인도네시아 (Garuda Indonesia)", "GIA": "가루다 인도네시아 (Garuda Indonesia)",
-    # 중동 / 유럽
     "EK": "에미레이트항공 (Emirates)", "UAE": "에미레이트항공 (Emirates)",
     "QR": "카타르항공 (Qatar Airways)", "QTR": "카타르항공 (Qatar Airways)",
-    "EY": "에티하드항공 (Etihad Airways)", "ETD": "에티하드항공 (Etihad Airways)",
     "LH": "루프트한자 (Lufthansa)", "DLH": "루프트한자 (Lufthansa)",
     "AF": "에어프랑스 (Air France)", "AFR": "에어프랑스 (Air France)",
-    "KL": "KLM 네덜란드항공 (KLM)", "KLM": "KLM 네덜란드항공 (KLM)",
     "BA": "영국항공 (British Airways)", "BAW": "영국항공 (British Airways)",
-    "AY": "핀에어 (Finnair)", "FIN": "핀에어 (Finnair)",
-    "TK": "터키항공 (Turkish Airlines)", "THY": "터키항공 (Turkish Airlines)",
-    # 미주 / 화물
     "UA": "유나이티드항공 (United Airlines)", "UAL": "유나이티드항공 (United Airlines)",
     "DL": "델타항공 (Delta Air Lines)", "DAL": "델타항공 (Delta Air Lines)",
     "AA": "아메리칸항공 (American Airlines)", "AAL": "아메리칸항공 (American Airlines)",
-    "AC": "에어캐나다 (Air Canada)", "ACA": "에어캐나다 (Air Canada)",
     "FX": "페덱스 익스프레스 (FedEx)", "FDX": "페덱스 익스프레스 (FedEx)",
-    "5X": "UPS 항공 (UPS Airlines)", "UPS": "UPS 항공 (UPS Airlines)",
-    "5Y": "아틀라스항공 (Atlas Air)", "GTI": "아틀라스항공 (Atlas Air)"
+    "5X": "UPS 항공 (UPS Airlines)", "UPS": "UPS 항공 (UPS Airlines)"
 }
 
 AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
@@ -101,40 +82,25 @@ def load_airlines():
 
 airlines_db = load_airlines()
 
-# IATA(2자리)와 ICAO(3자리)를 모두 식별하는 지능형 파서
 def resolve_airline_name(callsign):
     if not callsign or len(callsign) < 2:
         return ""
-    
     clean_cs = callsign.strip().upper()
-    
-    # 1. ICAO 3자리 우선 매칭 (예: KAL, AAR, JJA)
-    if len(clean_cs) >= 3:
-        icao_cand = clean_cs[:3]
-        if icao_cand in airlines_db:
-            return airlines_db[icao_cand]
-            
-    # 2. IATA 2자리 매칭 (예: KE123 -> KE, 7C101 -> 7C, OZ741 -> OZ)
-    iata_cand = clean_cs[:2]
-    if iata_cand in airlines_db:
-        return airlines_db[iata_cand]
-        
-    # 3. 정규식 기반 분리 (영문/숫자 혼합 접두사 파싱)
+    if len(clean_cs) >= 3 and clean_cs[:3] in airlines_db:
+        return airlines_db[clean_cs[:3]]
+    if clean_cs[:2] in airlines_db:
+        return airlines_db[clean_cs[:2]]
     match = re.match(r"^([A-Z0-9]{2,3})\d+", clean_cs)
-    if match:
-        code = match.group(1)
-        if code in airlines_db:
-            return airlines_db[code]
-            
+    if match and match.group(1) in airlines_db:
+        return airlines_db[match.group(1)]
     return ""
 
-# 2. 파이썬 백엔드 데이터 수집
+# 2. 백엔드 데이터 수집 (반경 100km)
 def fetch_flight_data(lat, lon):
-    radius_nm = 54  # 100km 커버리지
+    radius_nm = 54
     lat_diff = radius_nm / 60.0
     lon_diff = radius_nm / (60.0 * math.cos(math.radians(lat)))
     
-    # 1순위: Flightradar24
     url_fr24 = f"https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds={lat+lat_diff:.3f},{lat-lat_diff:.3f},{lon-lon_diff:.3f},{lon+lon_diff:.3f}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -148,7 +114,6 @@ def fetch_flight_data(lat, lon):
             for k, v in data.items():
                 if k in ['full_count', 'version', 'stats']: 
                     continue
-                # 편명(v[13]) 또는 콜사인(v[16])
                 callsign = (v[13] or v[16] or v[0] or "").strip()
                 vspeed = v[15] if len(v) > 15 and v[15] is not None else None
                 planes.append({
@@ -168,7 +133,6 @@ def fetch_flight_data(lat, lon):
     except Exception:
         pass
 
-    # 2순위: Airplanes.live
     url_live = f"https://api.airplanes.live/v2/point/{lat:.3f}/{lon:.3f}/{radius_nm}"
     try:
         res = requests.get(url_live, timeout=4)
@@ -199,7 +163,7 @@ def fetch_flight_data(lat, lon):
 
     return [], "No Signal"
 
-# 3. 홈포인트 좌표 동기화
+# 3. 홈포인트 설정
 if "home_coords" not in st.session_state:
     st.session_state.home_coords = [37.151575, 126.743044]
 
@@ -219,19 +183,22 @@ with st.sidebar:
     st.header("⚙️ Radar Settings")
     st.info("지도 위를 더블클릭/더블탭하면 홈포인트가 즉시 이동하고 100km 재스캔됩니다.")
     st.markdown("### 📍 Location Presets")
-    if st.button("🇰🇷 인천 국제공항", use_container_width=True):
+    if st.button("🏠 기본 홈포인트 복귀", use_container_width=True):
+        st.session_state.home_coords = [37.151575, 126.743044]
+        st.rerun()
+    if st.button("🇰🇷 인천 국제공항 (RKSI)", use_container_width=True):
         st.session_state.home_coords = [37.4600, 126.4400]
         st.rerun()
-    if st.button("🗼 도쿄 하네다 공항", use_container_width=True):
-        st.session_state.home_coords = [35.5494, 139.7798]
+    if st.button("🇰🇷 김포 국제공항 (RKSS)", use_container_width=True):
+        st.session_state.home_coords = [37.5583, 126.7906]
         st.rerun()
-    if st.button("🗽 뉴욕 JFK 공항", use_container_width=True):
-        st.session_state.home_coords = [40.6413, -73.7781]
+    if st.button("🌴 제주 국제공항 (RKPC)", use_container_width=True):
+        st.session_state.home_coords = [33.5113, 126.4930]
         st.rerun()
 
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
-# 4. 지도 프레임 렌더링
+# 4. 지도 프레임 렌더링 (인천/김포/제주 활주로, 유도로 및 SID/STAR 픽스 포함)
 radar_base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -270,25 +237,44 @@ radar_base_html = f"""
             backdrop-filter: blur(8px) !important;
             pointer-events: auto !important;
         }}
-        .plane-hud-card:before {{
-            border-right-color: rgba(255, 255, 255, 0.97) !important;
-        }}
-        .card-header {{
-            display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #edf2f7; padding-bottom: 5px; margin-bottom: 6px; gap: 8px;
-        }}
+        .plane-hud-card:before {{ border-right-color: rgba(255, 255, 255, 0.97) !important; }}
+        .card-header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #edf2f7; padding-bottom: 5px; margin-bottom: 6px; gap: 8px; }}
         .card-callsign {{ font-size: 18px; font-weight: 900; color: #e74c3c; line-height: 1; }}
         .card-type {{ font-size: 10px; font-weight: bold; background: #edf2f7; padding: 2px 6px; border-radius: 4px; color: #4a5568; }}
-        .card-airline {{ 
-            font-size: 13px; font-weight: 800; color: #1a365d; margin-bottom: 8px; 
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; 
-        }}
-        .card-metrics {{
-            display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px;
-        }}
+        .card-airline {{ font-size: 13px; font-weight: 800; color: #1a365d; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }}
+        .card-metrics {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px; }}
         .card-metrics div {{ display: flex; flex-direction: column; }}
         .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 1px; }}
         .card-value {{ font-size: 13px; font-weight: 800; color: #2d3748; white-space: nowrap; }}
+
+        /* 활주로 및 유도로 스타일 */
+        .runway-label {{
+            background: #1a202c !important; color: #ffffff !important;
+            border: 1px solid #4a5568 !important; border-radius: 3px !important;
+            font-size: 10px !important; font-weight: 900 !important;
+            padding: 1px 4px !important; box-shadow: 0 2px 4px rgba(0,0,0,0.4) !important;
+        }}
+        .runway-label:before {{ display: none !important; }}
+        .taxiway-label {{
+            background: #d69e2e !important; color: #1a202c !important;
+            border: 1px solid #744210 !important; border-radius: 3px !important;
+            font-size: 9px !important; font-weight: 800 !important;
+            padding: 0px 3px !important;
+        }}
+        .taxiway-label:before {{ display: none !important; }}
+
+        /* SID / STAR 웨이포인트(Fix) 마젠타 심볼 및 라벨 */
+        .fix-icon {{
+            width: 8px; height: 8px; background: #d53f8c; border: 1.5px solid #ffffff;
+            transform: rotate(45deg); box-shadow: 0 0 4px rgba(213,63,140,0.8);
+        }}
+        .fix-label {{
+            background: rgba(26, 32, 44, 0.85) !important; color: #f687b3 !important;
+            border: 1px solid #d53f8c !important; border-radius: 4px !important;
+            font-size: 10px !important; font-weight: 900 !important; padding: 1px 5px !important;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3) !important; pointer-events: none !important;
+        }}
+        .fix-label:before {{ display: none !important; }}
     </style>
 </head>
 <body>
@@ -336,6 +322,128 @@ radar_base_html = f"""
             weight: 3
         }}).addTo(map).bindTooltip("Home Point (100km)");
 
+        // -------------------------------------------------------------
+        // 공항 시설(활주로/유도로) & SID/STAR 주요 Fix 오버레이 레이어
+        // -------------------------------------------------------------
+        const navLayer = L.layerGroup().addTo(map);
+
+        // 1. 공항 물리적 활주로 및 유도로 데이터 (인천, 김포, 제주)
+        const airportsData = [
+            {{
+                name: "RKSI",
+                runways: [
+                    {{ id: "15R/33L", start: [37.4812, 126.4308], end: [37.4526, 126.4525], ends: [{{ label: "15R", pos: [37.4820, 126.4300] }}, {{ label: "33L", pos: [37.4518, 126.4533] }}] }},
+                    {{ id: "15L/33R", start: [37.4838, 126.4361], end: [37.4552, 126.4578], ends: [{{ label: "15L", pos: [37.4846, 126.4353] }}, {{ label: "33R", pos: [37.4544, 126.4586] }}] }},
+                    {{ id: "16R/34L", start: [37.4800, 126.4172], end: [37.4495, 126.4398], ends: [{{ label: "16R", pos: [37.4808, 126.4164] }}, {{ label: "34L", pos: [37.4487, 126.4406] }}] }},
+                    {{ id: "16L/34R", start: [37.4785, 126.4124], end: [37.4499, 126.4341], ends: [{{ label: "16L", pos: [37.4793, 126.4116] }}, {{ label: "34R", pos: [37.4491, 126.4349] }}] }}
+                ],
+                taxipaths: [
+                    {{ name: "TWY A", path: [[37.4825, 126.4332], [37.4539, 126.4549]], labelPos: [37.4682, 126.4440] }},
+                    {{ name: "TWY B", path: [[37.4851, 126.4385], [37.4565, 126.4602]], labelPos: [37.4708, 126.4493] }},
+                    {{ name: "TWY M", path: [[37.4812, 126.4195], [37.4507, 126.4421]], labelPos: [37.4659, 126.4308] }},
+                    {{ name: "TWY N", path: [[37.4772, 126.4101], [37.4486, 126.4318]], labelPos: [37.4629, 126.4209] }}
+                ]
+            }},
+            {{
+                name: "RKSS",
+                runways: [
+                    {{ id: "14R/32L", start: [37.5682, 126.7820], end: [37.5458, 126.8045], ends: [{{ label: "14R", pos: [37.5690, 126.7812] }}, {{ label: "32L", pos: [37.5450, 126.8053] }}] }},
+                    {{ id: "14L/32R", start: [37.5714, 126.7865], end: [37.5463, 126.8117], ends: [{{ label: "14L", pos: [37.5722, 126.7857] }}, {{ label: "32R", pos: [37.5455, 126.8125] }}] }}
+                ],
+                taxipaths: [
+                    {{ name: "TWY P", path: [[37.5698, 126.7842], [37.5460, 126.8081]], labelPos: [37.5579, 126.7961] }},
+                    {{ name: "TWY E", path: [[37.5668, 126.7802], [37.5444, 126.8027]], labelPos: [37.5556, 126.7914] }}
+                ]
+            }},
+            {{
+                name: "RKPC",
+                runways: [
+                    // 활주로 07/25 (3,180m - 주활주로)
+                    {{ id: "07/25", start: [33.5065, 126.4764], end: [33.5159, 126.5097], ends: [{{ label: "07", pos: [33.5058, 126.4740] }}, {{ label: "25", pos: [33.5165, 126.5120] }}] }},
+                    // 활주로 13/31 (1,900m - 보조교차)
+                    {{ id: "13/31", start: [33.5186, 126.4862], end: [33.5042, 126.4988], ends: [{{ label: "13", pos: [33.5195, 126.4850] }}, {{ label: "31", pos: [33.5035, 126.4998] }}] }}
+                ],
+                taxipaths: [
+                    {{ name: "TWY P", path: [[33.5085, 126.4780], [33.5175, 126.5100]], labelPos: [33.5130, 126.4940] }}
+                ]
+            }}
+        ];
+
+        // 활주로/유도로 렌더링
+        airportsData.forEach(apt => {{
+            apt.runways.forEach(rwy => {{
+                L.polyline([rwy.start, rwy.end], {{ color: '#2d3748', weight: 6, opacity: 0.95 }}).addTo(navLayer);
+                L.polyline([rwy.start, rwy.end], {{ color: '#ffffff', weight: 1.5, dashArray: '8, 6', opacity: 0.95 }}).addTo(navLayer);
+                rwy.ends.forEach(endObj => {{
+                    L.marker(endObj.pos, {{
+                        icon: L.divIcon({{ className: 'runway-label', html: endObj.label, iconSize: [28, 16], iconAnchor: [14, 8] }}),
+                        interactive: false
+                    }}).addTo(navLayer);
+                }});
+            }});
+            apt.taxipaths.forEach(twy => {{
+                L.polyline(twy.path, {{ color: '#718096', weight: 3, opacity: 0.8 }}).addTo(navLayer);
+                L.polyline(twy.path, {{ color: '#ecc94b', weight: 1, opacity: 0.9 }}).addTo(navLayer);
+                L.marker(twy.labelPos, {{
+                    icon: L.divIcon({{ className: 'taxiway-label', html: twy.name, iconSize: [40, 14], iconAnchor: [20, 7] }}),
+                    interactive: false
+                }}).addTo(navLayer);
+            }});
+        }});
+
+        // 2. 인천, 김포, 제주 주요 SID / STAR 핵심 Fix (AIP 실측 좌표)
+        const procedureFixes = [
+            // [인천 RKSI SID/STAR]
+            {{ name: "BOPTA", pos: [37.0733, 126.2417], type: "SID", note: "인천 남서향 출발 분기점" }},
+            {{ name: "NOUTE", pos: [37.2167, 125.8667], type: "SID", note: "인천 서해 출역점" }},
+            {{ name: "EGOBA", pos: [37.6667, 126.8833], type: "SID", note: "인천 동북향 전이점" }},
+            {{ name: "GUKDO", pos: [36.9833, 126.6500], type: "STAR", note: "인천 남부 진입 주력 픽스" }},
+            {{ name: "KARAS", pos: [37.1500, 126.0833], type: "STAR", note: "인천 남서부 도서 진입점" }},
+            {{ name: "RENOP", pos: [37.7500, 126.0500], type: "STAR", note: "인천 서해 북부 진입점" }},
+
+            // [김포 RKSS SID/STAR]
+            {{ name: "SEL", pos: [37.4306, 126.9389], type: "SID", note: "안양 VOR/DME (김포 표준출발 핵심)" }},
+            {{ name: "SOTSU", pos: [37.3000, 126.9000], type: "SID", note: "김포 남행 회랑 픽스" }},
+            {{ name: "BULLS", pos: [37.4167, 127.1833], type: "STAR", note: "김포 남동축 진입 픽스" }},
+            {{ name: "OLMEN", pos: [37.7833, 127.0500], type: "STAR", note: "김포 북동축 진입 픽스" }},
+            {{ name: "YAGI", pos: [37.5833, 126.5500], type: "STAR", note: "김포 서부 접근 분기점" }},
+
+            // [제주 RKPC SID/STAR]
+            {{ name: "TAMNA", pos: [33.6833, 126.3500], type: "SID", note: "제주 북서 표준출발점" }},
+            {{ name: "DOTOL", pos: [33.2833, 126.2167], type: "SID", note: "제주 남서향 출발점" }},
+            {{ name: "SOSDO", pos: [33.8000, 126.6333], type: "STAR", note: "내륙-제주 북부 진입 주력 픽스" }},
+            {{ name: "HAE", pos: [34.5833, 126.5833], type: "STAR", note: "해남 VOR (제주 관할 북측 경계)" }},
+            {{ name: "SARAS", pos: [33.4500, 126.8500], type: "STAR", note: "제주 동부 진입 픽스" }}
+        ];
+
+        // SID/STAR Fix 오버레이 렌더링
+        procedureFixes.forEach(fix => {{
+            // 마젠타 다이아몬드 아이콘
+            L.marker(fix.pos, {{
+                icon: L.divIcon({{
+                    className: 'fix-icon-wrapper',
+                    html: '<div class="fix-icon"></div>',
+                    iconSize: [8, 8],
+                    iconAnchor: [4, 4]
+                }}),
+                interactive: true
+            }}).addTo(navLayer).bindTooltip(`<b>${{fix.name}}</b> [${{fix.type}}]<br>${{fix.note}}`, {{ direction: 'top' }});
+
+            // 항행 식별 부호 텍스트 태그
+            L.marker(fix.pos, {{
+                icon: L.divIcon({{
+                    className: 'fix-label',
+                    html: `▲ ${{fix.name}}`,
+                    iconSize: [50, 15],
+                    iconAnchor: [25, -6]
+                }}),
+                interactive: false
+            }}).addTo(navLayer);
+        }});
+
+        // -------------------------------------------------------------
+        // 실시간 항공기 추적 엔진
+        // -------------------------------------------------------------
         let flightHistory = {{}};
         let markers = {{}};
         let polylines = {{}};

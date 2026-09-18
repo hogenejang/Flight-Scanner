@@ -2,7 +2,9 @@ import streamlit as st
 import streamlit.components.v1 as components
 import requests
 import json
+import math
 import csv
+import time
 
 st.set_page_config(
     page_title="Live Flight Scanner",
@@ -11,20 +13,20 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 모바일 및 전체 화면 여백/스크롤바 제거
+# 모바일 화면 공간 최적화
 st.markdown("""
 <style>
     .block-container { padding: 0 !important; max-width: 100% !important; overflow: hidden; }
     header { visibility: hidden; }
     footer { visibility: hidden; }
-    iframe { border: none !important; width: 100% !important; height: 100vh !important; }
+    iframe { border: none !important; width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 항공사 ICAO 코드 DB 로드 (JSON 주입용)
+# 1. 전 세계 항공사 데이터베이스 로드
 AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
 @st.cache_data(ttl=86400)
-def get_airlines_dict():
+def load_airlines():
     db = {}
     try:
         res = requests.get(AIRLINES_DATA_URL, timeout=5)
@@ -37,16 +39,99 @@ def get_airlines_dict():
                         db[icao] = row[1].strip()
     except Exception:
         pass
-    return json.dumps(db)
+    return db
 
-airlines_json_str = get_airlines_dict()
+airlines_db = load_airlines()
 
-# 초기 기준점 (인천국제공항)
-init_lat = 37.4600
-init_lon = 126.4400
+# 2. 파이썬 백엔드 데이터 수집 엔진 (CORS 문제 완전 배제)
+def fetch_flight_data(lat, lon):
+    radius_nm = 100  # 약 180km 커버리지
+    lat_diff = radius_nm / 60.0
+    lon_diff = radius_nm / (60.0 * math.cos(math.radians(lat)))
+    
+    # 1순위: Flightradar24 (인천공항 및 한반도 완벽 커버)
+    url_fr24 = f"https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds={lat+lat_diff:.3f},{lat-lat_diff:.3f},{lon-lon_diff:.3f},{lon+lon_diff:.3f}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
+    try:
+        res = requests.get(url_fr24, headers=headers, timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            planes = []
+            for k, v in data.items():
+                if k in ['full_count', 'version', 'stats']: 
+                    continue
+                callsign = (v[13] or v[16] or v[0] or "Unknown").strip()
+                planes.append({
+                    "hex": str(v[0]).upper(),
+                    "lat": v[1],
+                    "lon": v[2],
+                    "track": v[3] or 0,
+                    "alt": v[4] or 0,
+                    "spd": v[5] or 0,
+                    "type": v[8] or "N/A",
+                    "callsign": callsign,
+                    "airline": airlines_db.get(callsign[:3].upper(), "일반 / 개인 항공기")
+                })
+            if planes:
+                return planes, "Flightradar24"
+    except Exception:
+        pass
 
-# 단일 iframe 내에서 모든 실시간 루프가 깜빡임 없이 동작하는 HTML/JS 엔진
-radar_html = f"""
+    # 2순위: Airplanes.live (오픈망 폴백)
+    url_live = f"https://api.airplanes.live/v2/point/{lat:.3f}/{lon:.3f}/{radius_nm}"
+    try:
+        res = requests.get(url_live, timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            planes = []
+            for v in data.get("ac", []):
+                callsign = v.get("flight", "Unknown").strip()
+                alt = v.get("alt_baro", 0)
+                if alt == "ground" or alt is None: 
+                    alt = 0
+                planes.append({
+                    "hex": v.get("hex", "").upper(),
+                    "lat": v.get("lat"),
+                    "lon": v.get("lon"),
+                    "track": v.get("track", 0),
+                    "alt": alt,
+                    "spd": v.get("gs", 0),
+                    "type": v.get("t", "N/A"),
+                    "callsign": callsign,
+                    "airline": airlines_db.get(callsign[:3].upper(), "일반 / 개인 항공기")
+                })
+            return planes, "Airplanes.live"
+    except Exception:
+        pass
+
+    return [], "No Signal"
+
+# 세션 상태 초기화
+if "home_coords" not in st.session_state:
+    st.session_state.home_coords = [37.4600, 126.4400]  # 인천공항 기본값
+
+# 사이드바 프리셋
+with st.sidebar:
+    st.header("⚙️ Radar Settings")
+    st.info("지도 위를 더블클릭/더블탭하면 홈포인트가 즉시 이동합니다.")
+    st.markdown("### 📍 Location Presets")
+    if st.button("🇰🇷 인천 국제공항", use_container_width=True):
+        st.session_state.home_coords = [37.4600, 126.4400]
+        st.rerun()
+    if st.button("🗼 도쿄 하네다 공항", use_container_width=True):
+        st.session_state.home_coords = [35.5494, 139.7798]
+        st.rerun()
+    if st.button("🗽 뉴욕 JFK 공항", use_container_width=True):
+        st.session_state.home_coords = [40.6413, -73.7781]
+        st.rerun()
+
+h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
+
+# 3. 지도 프레임 렌더링 (최초 1회만 생성, 이후 재성성하지 않음)
+radar_base_html = f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -58,7 +143,6 @@ radar_html = f"""
         body, html {{ margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
         #map {{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #e5e9ec; }}
         
-        /* 상단 상태바 */
         .top-hud {{
             position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000;
             display: flex; justify-content: space-between; align-items: center; pointer-events: none;
@@ -69,7 +153,6 @@ radar_html = f"""
             pointer-events: auto; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(0,0,0,0.08);
         }}
         
-        /* 하단 비행기 정보 패널 */
         .bottom-hud {{
             position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); z-index: 1000;
             width: 90%; max-width: 480px; background: rgba(255, 255, 255, 0.96); border-radius: 18px;
@@ -96,9 +179,7 @@ radar_html = f"""
     <div id="map"></div>
 
     <div class="top-hud">
-        <div class="hud-box" id="status-box">
-            📡 레이더 스캔 시작...
-        </div>
+        <div class="hud-box" id="status-box">📡 위성 레이더 준비 중...</div>
         <div class="hud-box">
             <span style="color:#2ecc71;">● 수평</span>
             <span style="color:#f1c40f;">● 상승</span>
@@ -111,7 +192,7 @@ radar_html = f"""
             <span class="plane-callsign" id="p-callsign">탐색 중...</span>
             <span class="plane-type" id="p-type">-</span>
         </div>
-        <div class="plane-airline" id="p-airline">지도를 더블클릭하여 위치를 변경할 수 있습니다.</div>
+        <div class="plane-airline" id="p-airline">지도 위의 기체를 터치하거나 클릭하세요.</div>
         <div class="grid-info">
             <div class="grid-item">
                 <span class="grid-lbl">Altitude</span>
@@ -129,16 +210,14 @@ radar_html = f"""
     </div>
 
     <script>
-        const airlinesDB = {airlines_json_str};
-        let homeLat = {init_lat};
-        let homeLon = {init_lon};
+        let homeLat = {h_lat};
+        let homeLon = {h_lon};
 
-        // 지도 생성
         const map = L.map('map', {{
             center: [homeLat, homeLon],
             zoom: 9,
             zoomControl: false,
-            doubleClickZoom: false // 더블클릭 줌 해제 -> 홈포인트 이동 전용
+            doubleClickZoom: false
         }});
         L.control.zoom({{ position: 'bottomright' }}).addTo(map);
 
@@ -147,7 +226,6 @@ radar_html = f"""
             attribution: '© OpenStreetMap'
         }}).addTo(map);
 
-        // 180km 원형 레이더 범위
         let radarCircle = L.circle([homeLat, homeLon], {{
             radius: 180000,
             color: '#2980b9',
@@ -162,9 +240,8 @@ radar_html = f"""
             fillColor: '#ffffff',
             fillOpacity: 1,
             weight: 3
-        }}).addTo(map).bindTooltip("Home Point (Double-click to relocate)");
+        }}).addTo(map).bindTooltip("Home Point (Double-click to move)");
 
-        // 런타임 캐시 (DOM 객체를 재생성하지 않고 유지)
         let flightHistory = {{}};
         let markers = {{}};
         let polylines = {{}};
@@ -199,102 +276,15 @@ radar_html = f"""
             document.getElementById('p-status').style.color = color;
         }}
 
-        // 비동기 다중 데이터 수신 (CORS 자동 우회)
-        async function fetchFlightData() {{
-            const latDiff = 1.6;
-            const lonDiff = 2.0;
-            const bounds = `${{(homeLat+latDiff).toFixed(3)}},${{(homeLat-latDiff).toFixed(3)}},${{(homeLon-lonDiff).toFixed(3)}},${{(homeLon+lonDiff).toFixed(3)}}`;
-            const fr24Url = `https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=${{bounds}}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1`;
-
-            let planes = [];
-            let sourceName = "";
-
-            // 1차 시도: Allorigins 프록시로 Flightradar24 수신
-            try {{
-                const res = await fetch(`https://api.allorigins.win/get?url=${{encodeURIComponent(fr24Url)}}`);
-                if (res.ok) {{
-                    const json = await res.json();
-                    if (json.contents) {{
-                        const raw = JSON.parse(json.contents);
-                        for (let k in raw) {{
-                            if (['full_count', 'version', 'stats'].includes(k)) continue;
-                            const v = raw[k];
-                            const cs = (v[13] || v[16] || v[0] || "Unknown").trim();
-                            planes.push({{
-                                hex: String(v[0]).toUpperCase(),
-                                lat: v[1],
-                                lon: v[2],
-                                track: v[3] || 0,
-                                alt: v[4] || 0,
-                                spd: v[5] || 0,
-                                type: v[8] || "N/A",
-                                callsign: cs,
-                                airline: airlinesDB[cs.substring(0,3).toUpperCase()] || "일반 / 개인 항공기"
-                            }});
-                        }}
-                        if (planes.length > 0) sourceName = "Flightradar24";
-                    }}
-                }}
-            }} catch (e) {{}}
-
-            // 2차 시도: 오픈소스 ADSB.lol 직통 수신 (CORS 지원)
-            if (planes.length === 0) {{
-                try {{
-                    const res = await fetch(`https://api.adsb.lol/v2/point/${{homeLat.toFixed(3)}}/${{homeLon.toFixed(3)}}/100`);
-                    if (res.ok) {{
-                        const json = await res.json();
-                        (json.ac || []).forEach(v => {{
-                            const cs = (v.flight || "Unknown").trim();
-                            let alt = v.alt_baro;
-                            if (alt === "ground" || alt == null) alt = 0;
-                            planes.push({{
-                                hex: (v.hex || "").toUpperCase(),
-                                lat: v.lat,
-                                lon: v.lon,
-                                track: v.track || 0,
-                                alt: alt,
-                                spd: v.gs || 0,
-                                type: v.t || "N/A",
-                                callsign: cs,
-                                airline: airlinesDB[cs.substring(0,3).toUpperCase()] || "일반 / 개인 항공기"
-                            }});
-                        }});
-                        if (planes.length > 0) sourceName = "ADSB.lol";
-                    }}
-                }} catch (e) {{}}
-            }}
-
-            // 3차 시도: Airplanes.live 폴백
-            if (planes.length === 0) {{
-                try {{
-                    const res = await fetch(`https://api.airplanes.live/v2/point/${{homeLat.toFixed(3)}}/${{homeLon.toFixed(3)}}/100`);
-                    if (res.ok) {{
-                        const json = await res.json();
-                        (json.ac || []).forEach(v => {{
-                            const cs = (v.flight || "Unknown").trim();
-                            let alt = v.alt_baro;
-                            if (alt === "ground" || alt == null) alt = 0;
-                            planes.push({{
-                                hex: (v.hex || "").toUpperCase(),
-                                lat: v.lat,
-                                lon: v.lon,
-                                track: v.track || 0,
-                                alt: alt,
-                                spd: v.gs || 0,
-                                type: v.t || "N/A",
-                                callsign: cs,
-                                airline: airlinesDB[cs.substring(0,3).toUpperCase()] || "일반 / 개인 항공기"
-                            }});
-                        }});
-                        if (planes.length > 0) sourceName = "Airplanes.live";
-                    }}
-                }} catch (e) {{}}
-            }}
-
+        // 파이썬에서 push된 데이터를 수신하여 깜빡임 없이 마커/항적선 갱신
+        window.updateFlightRadar = function(payload) {{
+            const planes = payload.planes || [];
+            const sourceName = payload.source || '';
             const statusBox = document.getElementById('status-box');
+            
             if (planes.length === 0) {{
-                statusBox.innerText = "📡 0대 (해당 반경 트래픽 없음)";
-                statusBox.style.color = "#7f8c8d";
+                statusBox.innerText = `📡 0대 (트래픽 없음) [${{sourceName}}]`;
+                statusBox.style.color = "#e74c3c";
                 return;
             }}
 
@@ -317,7 +307,7 @@ radar_html = f"""
                     nearestPlane = p;
                 }}
 
-                // 가상 과거 꼬리선 보간 (첫 감지 시)
+                // 최초 감지 시 30초 이전 가상 꼬리선 보간
                 if (!flightHistory[icao]) {{
                     flightHistory[icao] = [];
                     if (p.alt > 0 && p.spd > 100) {{
@@ -351,14 +341,13 @@ radar_html = f"""
                     time: now
                 }});
 
-                // 15분 이상 경과된 항적 정리
                 flightHistory[icao] = flightHistory[icao].filter(pt => now - pt.time <= 900000);
                 if (flightHistory[icao].length > 120) flightHistory[icao].shift();
 
                 const hist = flightHistory[icao];
                 const status = getStatus(hist);
 
-                // 마커 위치만 부드럽게 이동 (깜빡임 0%)
+                // 마커 위치 및 각도만 부드럽게 갱신 (지우지 않음)
                 const newIcon = getIcon(p.track, status.color);
                 if (markers[icao]) {{
                     markers[icao].setLatLng([p.lat, p.lon]);
@@ -373,7 +362,7 @@ radar_html = f"""
                     markers[icao] = marker;
                 }}
 
-                // 꼬리선 좌표 배열만 갱신
+                // 꼬리선 갱신
                 const latlngs = hist.map(pt => [pt.lat, pt.lon]);
                 if (polylines[icao]) {{
                     polylines[icao].setLatLngs(latlngs);
@@ -387,7 +376,7 @@ radar_html = f"""
                 }}
             }});
 
-            // 범위 벗어난 기체 제거
+            // 반경 이탈 기체 정리
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -399,49 +388,61 @@ radar_html = f"""
                 }}
             }});
 
-            // 하단 패널 업데이트 (선택된 기체 또는 가장 가까운 기체)
             let focused = planes.find(p => p.hex === selectedIcao) || nearestPlane;
             if (focused) {{
                 const st = getStatus(flightHistory[focused.hex]);
                 updatePanel(focused, st.text, st.color);
             }}
-        }}
+        }};
 
-        // 더블클릭/더블탭 시 홈포인트 재설정
+        // 더블클릭/더블탭 홈포인트 즉시 재설정
         function relocateHome(newLat, newLon) {{
             homeLat = newLat;
             homeLon = newLon;
-            
             homeMarker.setLatLng([homeLat, homeLon]);
             radarCircle.setLatLng([homeLat, homeLon]);
             map.panTo([homeLat, homeLon]);
-
-            document.getElementById('status-box').innerText = "📡 새 위치 스캔 중...";
-            fetchFlightData();
+            document.getElementById('status-box').innerText = "📡 새 위치 재스캔 중...";
         }}
 
-        // PC 마우스 더블클릭 이벤트
         map.on('dblclick', function(e) {{
             relocateHome(e.latlng.lat, e.latlng.lng);
         }});
 
-        // 모바일 터치 더블탭 이벤트 (300ms)
         let lastTap = 0;
         map.on('click', function(e) {{
             const curTime = new Date().getTime();
-            const interval = curTime - lastTap;
-            if (interval < 300 && interval > 0) {{
+            if (curTime - lastTap < 300 && curTime - lastTap > 0) {{
                 relocateHome(e.latlng.lat, e.latlng.lng);
             }}
             lastTap = curTime;
         }});
-
-        // 최초 1회 실행 후 5초 주기로 데이터만 조용히 갱신 (지도는 재생성되지 않음)
-        fetchFlightData();
-        setInterval(fetchFlightData, 5000);
     </script>
 </body>
 </html>
 """
 
-components.html(radar_html, height=850, scrolling=False)
+components.html(radar_base_html, height=820, scrolling=False)
+
+# 4. 실시간 브릿지 프래그먼트 (5초마다 파이썬이 데이터를 긁어와 브라우저 함수를 직접 호출)
+@st.fragment(run_every="5s")
+def sync_data_stream():
+    planes, source_name = fetch_flight_data(st.session_state.home_coords[0], st.session_state.home_coords[1])
+    payload = json.dumps({"planes": planes, "source": source_name})
+
+    # 지도를 다시 그리지 않고, 이미 떠 있는 iframe 내부의 updateFlightRadar 함수만 호출
+    injector_script = f"""
+    <script>
+        const iframes = window.parent.document.querySelectorAll('iframe');
+        iframes.forEach(f => {{
+            try {{
+                if (f.contentWindow && f.contentWindow.updateFlightRadar) {{
+                    f.contentWindow.updateFlightRadar({payload});
+                }}
+            }} catch(e) {{}}
+        }});
+    </script>
+    """
+    components.html(injector_script, height=0, width=0)
+
+sync_data_stream()

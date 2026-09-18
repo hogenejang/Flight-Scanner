@@ -22,47 +22,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 1. 항공사 데이터베이스 (국내 및 주요 국제선 사전 탑재 + OpenFlights 자동 병합)
+# 1. 항공사 데이터베이스 (국내/주요 국제선 사전 탑재)
 DEFAULT_AIRLINES = {
-    "KAL": "대한항공 (Korean Air)",
-    "AAR": "아시아나항공 (Asiana Airlines)",
-    "JJA": "제주항공 (Jeju Air)",
-    "JNA": "진에어 (Jin Air)",
-    "TWB": "티웨이항공 (T'way Air)",
-    "ASV": "에어서울 (Air Seoul)",
-    "ABL": "에어부산 (Air Busan)",
-    "ESR": "이스타항공 (Eastar Jet)",
-    "FGW": "플라이강원 (Fly Gangwon)",
-    "APJ": "피치항공 (Peach Aviation)",
-    "ANA": "전일본공수 (All Nippon Airways)",
-    "JAL": "일본항공 (Japan Airlines)",
-    "CPA": "캐세이퍼시픽 (Cathay Pacific)",
-    "CAL": "중화항공 (China Airlines)",
-    "EVA": "에바항공 (EVA Air)",
-    "CCA": "중국국제항공 (Air China)",
-    "CES": "중국동방항공 (China Eastern)",
-    "CSN": "중국남방항공 (China Southern)",
-    "SIA": "싱가포르항공 (Singapore Airlines)",
-    "THA": "타이항공 (Thai Airways)",
-    "MAS": "말레이시아항공 (Malaysia Airlines)",
-    "HVN": "베트남항공 (Vietnam Airlines)",
-    "VJC": "비엣젯항공 (VietJet Air)",
-    "PAL": "필리핀항공 (Philippine Airlines)",
-    "CEB": "세부퍼시픽 (Cebu Pacific)",
-    "UAE": "에미레이트항공 (Emirates)",
-    "QTR": "카타르항공 (Qatar Airways)",
-    "ETD": "에티하드항공 (Etihad Airways)",
-    "DLH": "루프트한자 (Lufthansa)",
-    "AFR": "에어프랑스 (Air France)",
-    "KLM": "KLM 네덜란드항공 (KLM)",
-    "BAW": "영국항공 (British Airways)",
-    "UAL": "유나이티드항공 (United Airlines)",
-    "DAL": "델타항공 (Delta Air Lines)",
-    "AAL": "아메리칸항공 (American Airlines)",
-    "FDX": "페덱스 익스프레스 (FedEx)",
-    "UPS": "UPS 항공 (UPS Airlines)",
-    "GTI": "아틀라스항공 (Atlas Air)",
-    "PAC": "폴라에어카고 (Polar Air Cargo)"
+    "KAL": "대한항공 (Korean Air)", "AAR": "아시아나항공 (Asiana Airlines)",
+    "JJA": "제주항공 (Jeju Air)", "JNA": "진에어 (Jin Air)",
+    "TWB": "티웨이항공 (T'way Air)", "ASV": "에어서울 (Air Seoul)",
+    "ABL": "에어부산 (Air Busan)", "ESR": "이스타항공 (Eastar Jet)",
+    "APJ": "피치항공 (Peach Aviation)", "ANA": "전일본공수 (ANA)",
+    "JAL": "일본항공 (JAL)", "CPA": "캐세이퍼시픽 (Cathay Pacific)",
+    "CAL": "중화항공 (China Airlines)", "EVA": "에바항공 (EVA Air)",
+    "CCA": "중국국제항공 (Air China)", "CES": "중국동방항공 (China Eastern)",
+    "CSN": "중국남방항공 (China Southern)", "SIA": "싱가포르항공 (Singapore Airlines)",
+    "THA": "타이항공 (Thai Airways)", "HVN": "베트남항공 (Vietnam Airlines)",
+    "UAE": "에미레이트항공 (Emirates)", "QTR": "카타르항공 (Qatar Airways)",
+    "DLH": "루프트한자 (Lufthansa)", "AFR": "에어프랑스 (Air France)",
+    "BAW": "영국항공 (British Airways)", "UAL": "유나이티드항공 (United Airlines)",
+    "DAL": "델타항공 (Delta Air Lines)", "AAL": "아메리칸항공 (American Airlines)",
+    "FDX": "페덱스 익스프레스 (FedEx)", "UPS": "UPS 항공 (UPS Airlines)"
 }
 
 AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
@@ -88,16 +64,15 @@ airlines_db = load_airlines()
 def resolve_airline_name(callsign):
     if not callsign or len(callsign) < 3:
         return ""
-    code = callsign[:3].upper()
-    return airlines_db.get(code, "")
+    return airlines_db.get(callsign[:3].upper(), "")
 
-# 2. 파이썬 백엔드 실시간 데이터 수집 (CORS 원천 배제)
+# 2. 파이썬 백엔드 데이터 수집 (반경 100km = 약 54해리 적용)
 def fetch_flight_data(lat, lon):
-    radius_nm = 100  # 커버리지
+    radius_nm = 54  # 정확한 100km 커버리지 (100km / 1.852 ≈ 54nm)
     lat_diff = radius_nm / 60.0
     lon_diff = radius_nm / (60.0 * math.cos(math.radians(lat)))
     
-    # 1순위: Flightradar24 (인천공항 및 한반도 완벽 커버)
+    # 1순위: Flightradar24
     url_fr24 = f"https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds={lat+lat_diff:.3f},{lat-lat_diff:.3f},{lon-lon_diff:.3f},{lon+lon_diff:.3f}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -128,7 +103,7 @@ def fetch_flight_data(lat, lon):
     except Exception:
         pass
 
-    # 2순위: Airplanes.live (오픈망 폴백)
+    # 2순위: Airplanes.live
     url_live = f"https://api.airplanes.live/v2/point/{lat:.3f}/{lon:.3f}/{radius_nm}"
     try:
         res = requests.get(url_live, timeout=4)
@@ -157,14 +132,26 @@ def fetch_flight_data(lat, lon):
 
     return [], "No Signal"
 
-# 세션 상태 초기화
+# 3. 홈포인트 좌표 동기화 (JS 더블클릭 -> 파이썬 상태 동기화)
 if "home_coords" not in st.session_state:
-    st.session_state.home_coords = [37.4600, 126.4400]  # 인천국제공항 기본값
+    st.session_state.home_coords = [37.4600, 126.4400]  # 기본값: 인천공항
 
-# 사이드바 프리셋
+# 브라우저에서 더블클릭으로 넘어온 새 위경도 확인
+qp = st.query_params
+if "lat" in qp and "lon" in qp:
+    try:
+        new_lat = float(qp["lat"])
+        new_lon = float(qp["lon"])
+        if (new_lat != st.session_state.home_coords[0] or 
+            new_lon != st.session_state.home_coords[1]):
+            st.session_state.home_coords = [new_lat, new_lon]
+            st.query_params.clear()
+    except Exception:
+        pass
+
 with st.sidebar:
     st.header("⚙️ Radar Settings")
-    st.info("지도 위를 더블클릭/더블탭하면 홈포인트가 즉시 이동합니다.")
+    st.info("지도 위를 더블클릭/더블탭하면 해당 지점으로 즉시 홈포인트가 이동하고 100km 재스캔됩니다.")
     st.markdown("### 📍 Location Presets")
     if st.button("🇰🇷 인천 국제공항", use_container_width=True):
         st.session_state.home_coords = [37.4600, 126.4400]
@@ -178,7 +165,7 @@ with st.sidebar:
 
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
-# 3. 지도 프레임 렌더링
+# 4. 지도 프레임 렌더링 (홈포인트 100km 원형 및 양방향 동기화 탑재)
 radar_base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -243,7 +230,7 @@ radar_base_html = f"""
     <div id="map"></div>
 
     <div class="top-hud">
-        <div class="hud-box" id="status-box">📡 위성 레이더 준비 중...</div>
+        <div class="hud-box" id="status-box">📡 100km 레이더 가동 중...</div>
         <div class="hud-box">
             <span style="color:#2ecc71;">● 수평</span>
             <span style="color:#f1c40f;">● 상승</span>
@@ -268,8 +255,9 @@ radar_base_html = f"""
             attribution: '© OpenStreetMap'
         }}).addTo(map);
 
+        // 정확한 100km (100,000m) 원형 레이더
         let radarCircle = L.circle([homeLat, homeLon], {{
-            radius: 180000,
+            radius: 100000,
             color: '#2980b9',
             weight: 2,
             fillColor: '#3498db',
@@ -282,7 +270,7 @@ radar_base_html = f"""
             fillColor: '#ffffff',
             fillOpacity: 1,
             weight: 3
-        }}).addTo(map).bindTooltip("Home Point (Double-click to move)");
+        }}).addTo(map).bindTooltip("Home Point (100km)");
 
         let flightHistory = {{}};
         let markers = {{}};
@@ -307,7 +295,6 @@ radar_base_html = f"""
             return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        // 항공기 옆에 부착되는 카드 템플릿 (항공사 이름 확실하게 표시)
         function makeHudContent(p, statusTxt, color) {{
             const airlineHtml = p.airline ? `<div class="card-airline">${{p.airline}}</div>` : '';
             return `
@@ -333,7 +320,6 @@ radar_base_html = f"""
             `;
         }}
 
-        // 지도 빈 공간 클릭 시 카드 닫기
         map.on('click', function() {{
             if (selectedIcao && markers[selectedIcao]) {{
                 markers[selectedIcao].unbindTooltip();
@@ -346,27 +332,25 @@ radar_base_html = f"""
             selectedIcao = null;
         }});
 
-        // 실시간 데이터 수신 및 마커 추종
+        // 실시간 데이터 수신 및 100km 원형 마커 렌더링
         window.updateFlightRadar = function(payload) {{
             const planes = payload.planes || [];
             const sourceName = payload.source || '';
             const statusBox = document.getElementById('status-box');
             
-            if (planes.length === 0) {{
-                statusBox.innerText = `📡 0대 (트래픽 없음) [${{sourceName}}]`;
-                statusBox.style.color = "#e74c3c";
-                return;
-            }}
-
-            statusBox.innerText = `📡 ${{planes.length}}대 추적 중 [${{sourceName}}]`;
-            statusBox.style.color = "#2ecc71";
-
             const now = Date.now();
             const currentIcaos = new Set();
+            let countIn100km = 0;
 
             planes.forEach(p => {{
                 const icao = p.hex;
                 if (!icao || p.lat == null || p.lon == null) return;
+
+                // 100km 초과 기체는 렌더링 제외 (실제 구면 거리 계산)
+                const distKm = Math.hypot(p.lat - homeLat, (p.lon - homeLon) * Math.cos(homeLat * Math.PI / 180)) * 111.32;
+                if (distKm > 100) return;
+
+                countIn100km++;
                 currentIcaos.add(icao);
 
                 if (!flightHistory[icao]) {{
@@ -375,12 +359,12 @@ radar_base_html = f"""
                         const rad = p.track * Math.PI / 180;
                         const backRad = (rad + Math.PI) % (2 * Math.PI);
                         [30, 15].forEach(pastSec => {{
-                            const distKm = (p.spd * pastSec / 3600.0) * 1.852;
-                            const d = distKm / 6371.0;
+                            const distKmB = (p.spd * pastSec / 3600.0) * 1.852;
+                            const d = distKmB / 6371.0;
                             const pLat = Math.asin(Math.sin(p.lat * Math.PI / 180) * Math.cos(d) +
                                          Math.cos(p.lat * Math.PI / 180) * Math.sin(d) * Math.cos(backRad));
                             const pLon = (p.lon * Math.PI / 180) + Math.atan2(
-                                Math.sin(backRad) * Math.sin(d) * Math.cos(acLat = p.lat * Math.PI / 180),
+                                Math.sin(backRad) * Math.sin(d) * Math.cos(p.lat * Math.PI / 180),
                                 Math.cos(d) - Math.sin(p.lat * Math.PI / 180) * Math.sin(pLat)
                             );
                             flightHistory[icao].push({{
@@ -394,15 +378,8 @@ radar_base_html = f"""
                 }}
 
                 flightHistory[icao].push({{
-                    lat: p.lat,
-                    lon: p.lon,
-                    alt: p.alt,
-                    spd: p.spd,
-                    track: p.track,
-                    callsign: p.callsign,
-                    airline: p.airline,
-                    type: p.type,
-                    time: now
+                    lat: p.lat, lon: p.lon, alt: p.alt, spd: p.spd,
+                    track: p.track, callsign: p.callsign, airline: p.airline, type: p.type, time: now
                 }});
 
                 flightHistory[icao] = flightHistory[icao].filter(pt => now - pt.time <= 900000);
@@ -443,7 +420,6 @@ radar_base_html = f"""
                     markers[icao] = marker;
                 }}
 
-                // 선택된 상태인 경우 마커 위치를 따라 카드 갱신
                 if (isSelected) {{
                     markers[icao].unbindTooltip();
                     markers[icao].bindTooltip(makeHudContent(p, status.text, status.color), {{
@@ -456,7 +432,6 @@ radar_base_html = f"""
                     markers[icao].bindTooltip(`<b>${{p.callsign}}</b><br>${{Math.round(p.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
                 }}
 
-                // 꼬리선 갱신
                 const latlngs = hist.map(pt => [pt.lat, pt.lon]);
                 if (polylines[icao]) {{
                     polylines[icao].setLatLngs(latlngs);
@@ -470,7 +445,7 @@ radar_base_html = f"""
                 }}
             }});
 
-            // 화면 이탈 기체 제거
+            // 100km 범위를 벗어난 기체는 지도에서 완전히 제거
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -481,16 +456,42 @@ radar_base_html = f"""
                     if (selectedIcao === icao) selectedIcao = null;
                 }}
             }});
+
+            if (countIn100km === 0) {{
+                statusBox.innerText = `📡 0대 (100km 내 트래픽 없음) [${{sourceName}}]`;
+                statusBox.style.color = "#e74c3c";
+            }} else {{
+                statusBox.innerText = `📡 ${{countIn100km}}대 추적 중 [${{sourceName}}]`;
+                statusBox.style.color = "#2ecc71";
+            }}
         }};
 
-        // 더블클릭/더블탭 시 홈포인트 이동
+        // 더블클릭/더블탭 시 홈포인트 이동 및 파이썬 백엔드로 새 좌표 즉시 전달
         function relocateHome(newLat, newLon) {{
             homeLat = newLat;
             homeLon = newLon;
             homeMarker.setLatLng([homeLat, homeLon]);
             radarCircle.setLatLng([homeLat, homeLon]);
             map.panTo([homeLat, homeLon]);
-            document.getElementById('status-box').innerText = "📡 새 위치 재스캔 중...";
+
+            // 기존 100km 밖 마커 즉시 소거
+            Object.values(markers).forEach(m => map.removeLayer(m));
+            Object.values(polylines).forEach(p => map.removeLayer(p));
+            markers = {{}};
+            polylines = {{}};
+            flightHistory = {{}};
+            selectedIcao = null;
+            
+            document.getElementById('status-box').innerText = "📡 새 위치 재스캔 요청 중...";
+            document.getElementById('status-box').style.color = "#f39c12";
+
+            // 핵심: 부모 창(Streamlit)의 쿼리 스트링을 변경하여 파이썬 백엔드가 새 좌표를 가져오도록 트리거
+            try {{
+                const parentUrl = new URL(window.parent.location.href);
+                parentUrl.searchParams.set("lat", newLat.toFixed(4));
+                parentUrl.searchParams.set("lon", newLon.toFixed(4));
+                window.parent.history.replaceState(null, "", parentUrl.toString());
+            }} catch (e) {{}}
         }}
 
         map.on('dblclick', function(e) {{
@@ -512,10 +513,24 @@ radar_base_html = f"""
 
 components.html(radar_base_html, height=850, scrolling=False)
 
-# 4. 실시간 브릿지 프래그먼트 (5초 주기 파이썬 백엔드 Fetch & 인라인 주입)
+# 5. 실시간 브릿지 프래그먼트 (5초마다 파이썬이 데이터 전송)
 @st.fragment(run_every="5s")
 def sync_data_stream():
-    planes, source_name = fetch_flight_data(st.session_state.home_coords[0], st.session_state.home_coords[1])
+    # 파이썬이 현재 저장된 홈포인트(더블클릭 반영된 좌표) 주변 100km를 가져옵니다
+    lat = st.session_state.home_coords[0]
+    lon = st.session_state.home_coords[1]
+    
+    # 쿼리 파라미터가 들어왔다면 즉시 반영
+    qp = st.query_params
+    if "lat" in qp and "lon" in qp:
+        try:
+            lat = float(qp["lat"])
+            lon = float(qp["lon"])
+            st.session_state.home_coords = [lat, lon]
+        except Exception:
+            pass
+
+    planes, source_name = fetch_flight_data(lat, lon)
     payload = json.dumps({"planes": planes, "source": source_name})
 
     injector_script = f"""

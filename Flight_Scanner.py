@@ -4,6 +4,7 @@ import requests
 import json
 import math
 import csv
+import re
 
 st.set_page_config(
     page_title="Live Flight Scanner",
@@ -22,23 +23,59 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 1. 항공사 데이터베이스 (국내/주요 국제선 사전 탑재)
+# 1. IATA(2자리) & ICAO(3자리) 통합 항공사 데이터베이스
 DEFAULT_AIRLINES = {
-    "KAL": "대한항공 (Korean Air)", "AAR": "아시아나항공 (Asiana Airlines)",
-    "JJA": "제주항공 (Jeju Air)", "JNA": "진에어 (Jin Air)",
-    "TWB": "티웨이항공 (T'way Air)", "ASV": "에어서울 (Air Seoul)",
-    "ABL": "에어부산 (Air Busan)", "ESR": "이스타항공 (Eastar Jet)",
-    "APJ": "피치항공 (Peach Aviation)", "ANA": "전일본공수 (ANA)",
-    "JAL": "일본항공 (JAL)", "CPA": "캐세이퍼시픽 (Cathay Pacific)",
-    "CAL": "중화항공 (China Airlines)", "EVA": "에바항공 (EVA Air)",
-    "CCA": "중국국제항공 (Air China)", "CES": "중국동방항공 (China Eastern)",
-    "CSN": "중국남방항공 (China Southern)", "SIA": "싱가포르항공 (Singapore Airlines)",
-    "THA": "타이항공 (Thai Airways)", "HVN": "베트남항공 (Vietnam Airlines)",
-    "UAE": "에미레이트항공 (Emirates)", "QTR": "카타르항공 (Qatar Airways)",
-    "DLH": "루프트한자 (Lufthansa)", "AFR": "에어프랑스 (Air France)",
-    "BAW": "영국항공 (British Airways)", "UAL": "유나이티드항공 (United Airlines)",
-    "DAL": "델타항공 (Delta Air Lines)", "AAL": "아메리칸항공 (American Airlines)",
-    "FDX": "페덱스 익스프레스 (FedEx)", "UPS": "UPS 항공 (UPS Airlines)"
+    # 대한민국
+    "KE": "대한항공 (Korean Air)", "KAL": "대한항공 (Korean Air)",
+    "OZ": "아시아나항공 (Asiana Airlines)", "AAR": "아시아나항공 (Asiana Airlines)",
+    "7C": "제주항공 (Jeju Air)", "JJA": "제주항공 (Jeju Air)",
+    "LJ": "진에어 (Jin Air)", "JNA": "진에어 (Jin Air)",
+    "TW": "티웨이항공 (T'way Air)", "TWB": "티웨이항공 (T'way Air)",
+    "RS": "에어서울 (Air Seoul)", "ASV": "에어서울 (Air Seoul)",
+    "BX": "에어부산 (Air Busan)", "ABL": "에어부산 (Air Busan)",
+    "ZE": "이스타항공 (Eastar Jet)", "ESR": "이스타항공 (Eastar Jet)",
+    "YP": "에어프레미아 (Air Premia)", "APZ": "에어프레미아 (Air Premia)",
+    # 일본
+    "MM": "피치항공 (Peach Aviation)", "APJ": "피치항공 (Peach Aviation)",
+    "NH": "전일본공수 (ANA)", "ANA": "전일본공수 (ANA)",
+    "JL": "일본항공 (JAL)", "JAL": "일본항공 (JAL)",
+    "7G": "스타플라이어 (StarFlyer)", "SFJ": "스타플라이어 (StarFlyer)",
+    # 대만 / 홍콩 / 중국
+    "CX": "캐세이퍼시픽 (Cathay Pacific)", "CPA": "캐세이퍼시픽 (Cathay Pacific)",
+    "CI": "중화항공 (China Airlines)", "CAL": "중화항공 (China Airlines)",
+    "BR": "에바항공 (EVA Air)", "EVA": "에바항공 (EVA Air)",
+    "CA": "중국국제항공 (Air China)", "CCA": "중국국제항공 (Air China)",
+    "MU": "중국동방항공 (China Eastern)", "CES": "중국동방항공 (China Eastern)",
+    "CZ": "중국남방항공 (China Southern)", "CSN": "중국남방항공 (China Southern)",
+    "MF": "샤먼항공 (XiamenAir)", "CXA": "샤먼항공 (XiamenAir)",
+    "SC": "산동항공 (Shandong Airlines)", "CDG": "산동항공 (Shandong Airlines)",
+    # 동남아시아
+    "SQ": "싱가포르항공 (Singapore Airlines)", "SIA": "싱가포르항공 (Singapore Airlines)",
+    "TG": "타이항공 (Thai Airways)", "THA": "타이항공 (Thai Airways)",
+    "MH": "말레이시아항공 (Malaysia Airlines)", "MAS": "말레이시아항공 (Malaysia Airlines)",
+    "VN": "베트남항공 (Vietnam Airlines)", "HVN": "베트남항공 (Vietnam Airlines)",
+    "VJ": "비엣젯항공 (VietJet Air)", "VJC": "비엣젯항공 (VietJet Air)",
+    "PR": "필리핀항공 (Philippine Airlines)", "PAL": "필리핀항공 (Philippine Airlines)",
+    "5J": "세부퍼시픽 (Cebu Pacific)", "CEB": "세부퍼시픽 (Cebu Pacific)",
+    "GA": "가루다 인도네시아 (Garuda Indonesia)", "GIA": "가루다 인도네시아 (Garuda Indonesia)",
+    # 중동 / 유럽
+    "EK": "에미레이트항공 (Emirates)", "UAE": "에미레이트항공 (Emirates)",
+    "QR": "카타르항공 (Qatar Airways)", "QTR": "카타르항공 (Qatar Airways)",
+    "EY": "에티하드항공 (Etihad Airways)", "ETD": "에티하드항공 (Etihad Airways)",
+    "LH": "루프트한자 (Lufthansa)", "DLH": "루프트한자 (Lufthansa)",
+    "AF": "에어프랑스 (Air France)", "AFR": "에어프랑스 (Air France)",
+    "KL": "KLM 네덜란드항공 (KLM)", "KLM": "KLM 네덜란드항공 (KLM)",
+    "BA": "영국항공 (British Airways)", "BAW": "영국항공 (British Airways)",
+    "AY": "핀에어 (Finnair)", "FIN": "핀에어 (Finnair)",
+    "TK": "터키항공 (Turkish Airlines)", "THY": "터키항공 (Turkish Airlines)",
+    # 미주 / 화물
+    "UA": "유나이티드항공 (United Airlines)", "UAL": "유나이티드항공 (United Airlines)",
+    "DL": "델타항공 (Delta Air Lines)", "DAL": "델타항공 (Delta Air Lines)",
+    "AA": "아메리칸항공 (American Airlines)", "AAL": "아메리칸항공 (American Airlines)",
+    "AC": "에어캐나다 (Air Canada)", "ACA": "에어캐나다 (Air Canada)",
+    "FX": "페덱스 익스프레스 (FedEx)", "FDX": "페덱스 익스프레스 (FedEx)",
+    "5X": "UPS 항공 (UPS Airlines)", "UPS": "UPS 항공 (UPS Airlines)",
+    "5Y": "아틀라스항공 (Atlas Air)", "GTI": "아틀라스항공 (Atlas Air)"
 }
 
 AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
@@ -51,24 +88,49 @@ def load_airlines():
             reader = csv.reader(res.text.strip().splitlines())
             for row in reader:
                 if len(row) >= 7:
-                    icao = row[4].strip().upper()
                     name = row[1].strip()
+                    iata = row[3].strip().upper()
+                    icao = row[4].strip().upper()
                     if len(icao) == 3 and icao != "\\N" and icao not in db:
                         db[icao] = name
+                    if len(iata) == 2 and iata != "\\N" and iata not in db:
+                        db[iata] = name
     except Exception:
         pass
     return db
 
 airlines_db = load_airlines()
 
+# IATA(2자리)와 ICAO(3자리)를 모두 식별하는 지능형 파서
 def resolve_airline_name(callsign):
-    if not callsign or len(callsign) < 3:
+    if not callsign or len(callsign) < 2:
         return ""
-    return airlines_db.get(callsign[:3].upper(), "")
+    
+    clean_cs = callsign.strip().upper()
+    
+    # 1. ICAO 3자리 우선 매칭 (예: KAL, AAR, JJA)
+    if len(clean_cs) >= 3:
+        icao_cand = clean_cs[:3]
+        if icao_cand in airlines_db:
+            return airlines_db[icao_cand]
+            
+    # 2. IATA 2자리 매칭 (예: KE123 -> KE, 7C101 -> 7C, OZ741 -> OZ)
+    iata_cand = clean_cs[:2]
+    if iata_cand in airlines_db:
+        return airlines_db[iata_cand]
+        
+    # 3. 정규식 기반 분리 (영문/숫자 혼합 접두사 파싱)
+    match = re.match(r"^([A-Z0-9]{2,3})\d+", clean_cs)
+    if match:
+        code = match.group(1)
+        if code in airlines_db:
+            return airlines_db[code]
+            
+    return ""
 
-# 2. 파이썬 백엔드 데이터 수집 (반경 100km 및 fpm 추출)
+# 2. 파이썬 백엔드 데이터 수집
 def fetch_flight_data(lat, lon):
-    radius_nm = 54  # 100km 반경
+    radius_nm = 54  # 100km 커버리지
     lat_diff = radius_nm / 60.0
     lon_diff = radius_nm / (60.0 * math.cos(math.radians(lat)))
     
@@ -86,6 +148,7 @@ def fetch_flight_data(lat, lon):
             for k, v in data.items():
                 if k in ['full_count', 'version', 'stats']: 
                     continue
+                # 편명(v[13]) 또는 콜사인(v[16])
                 callsign = (v[13] or v[16] or v[0] or "").strip()
                 vspeed = v[15] if len(v) > 15 and v[15] is not None else None
                 planes.append({
@@ -138,7 +201,7 @@ def fetch_flight_data(lat, lon):
 
 # 3. 홈포인트 좌표 동기화
 if "home_coords" not in st.session_state:
-    st.session_state.home_coords = [37.4600, 126.4400]  # 기본값: 인천공항
+    st.session_state.home_coords = [37.4600, 126.4400]
 
 qp = st.query_params
 if "lat" in qp and "lon" in qp:
@@ -154,7 +217,7 @@ if "lat" in qp and "lon" in qp:
 
 with st.sidebar:
     st.header("⚙️ Radar Settings")
-    st.info("지도 위를 더블클릭/더블탭하면 해당 지점으로 즉시 홈포인트가 이동하고 100km 재스캔됩니다.")
+    st.info("지도 위를 더블클릭/더블탭하면 홈포인트가 즉시 이동하고 100km 재스캔됩니다.")
     st.markdown("### 📍 Location Presets")
     if st.button("🇰🇷 인천 국제공항", use_container_width=True):
         st.session_state.home_coords = [37.4600, 126.4400]
@@ -168,7 +231,7 @@ with st.sidebar:
 
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
-# 4. 지도 프레임 렌더링 (FPM 표시 HUD 포함)
+# 4. 지도 프레임 렌더링
 radar_base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -196,7 +259,6 @@ radar_base_html = f"""
             filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.6)); transition: transform 0.4s linear;
         }}
 
-        /* 비행기 옆에 고정 부착되는 상세 정보 카드 */
         .plane-hud-card {{
             background: rgba(255, 255, 255, 0.97) !important;
             border: 1px solid rgba(0,0,0,0.12) !important;
@@ -204,7 +266,7 @@ radar_base_html = f"""
             box-shadow: 0 8px 24px rgba(0,0,0,0.22) !important;
             padding: 10px 14px !important;
             color: #2c3e50 !important;
-            min-width: 195px !important;
+            min-width: 200px !important;
             backdrop-filter: blur(8px) !important;
             pointer-events: auto !important;
         }}
@@ -218,8 +280,8 @@ radar_base_html = f"""
         .card-callsign {{ font-size: 18px; font-weight: 900; color: #e74c3c; line-height: 1; }}
         .card-type {{ font-size: 10px; font-weight: bold; background: #edf2f7; padding: 2px 6px; border-radius: 4px; color: #4a5568; }}
         .card-airline {{ 
-            font-size: 13px; font-weight: 700; color: #1a365d; margin-bottom: 8px; 
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; 
+            font-size: 13px; font-weight: 800; color: #1a365d; margin-bottom: 8px; 
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; 
         }}
         .card-metrics {{
             display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px;
@@ -284,7 +346,6 @@ radar_base_html = f"""
             return L.divIcon({{ className: '', html: html, iconSize: [24,24], iconAnchor: [12,12] }});
         }}
 
-        // 실시간 분당상승률(fpm) 및 상태 판별
         function getStatus(hist, rawVspeed) {{
             let vsFpm = 0;
             if (rawVspeed !== null && rawVspeed !== undefined) {{
@@ -315,7 +376,6 @@ radar_base_html = f"""
             return {{ color, text, fpmText, vsFpm }};
         }}
 
-        // 분당상승률(FPM)이 포함된 2x2 세부정보 카드 생성
         function makeHudContent(p, statusObj) {{
             const airlineHtml = p.airline ? `<div class="card-airline">${{p.airline}}</div>` : '';
             return `

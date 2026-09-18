@@ -4,7 +4,6 @@ import requests
 import json
 import math
 import csv
-import time
 
 st.set_page_config(
     page_title="Live Flight Scanner",
@@ -130,7 +129,7 @@ with st.sidebar:
 
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
-# 3. 지도 프레임 렌더링 (최초 1회만 생성, 이후 재성성하지 않음)
+# 3. 지도 프레임 렌더링
 radar_base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -153,26 +152,40 @@ radar_base_html = f"""
             pointer-events: auto; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(0,0,0,0.08);
         }}
         
-        .bottom-hud {{
-            position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); z-index: 1000;
-            width: 90%; max-width: 480px; background: rgba(255, 255, 255, 0.96); border-radius: 18px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.22); padding: 16px 20px; pointer-events: auto;
-            display: flex; flex-direction: column; border: 1px solid rgba(0,0,0,0.06); backdrop-filter: blur(8px);
-        }}
-        .plane-header {{ display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }}
-        .plane-callsign {{ font-size: 24px; font-weight: 900; color: #e74c3c; line-height: 1; }}
-        .plane-type {{ font-size: 12px; font-weight: bold; color: #7f8c8d; background: #edf2f7; padding: 2px 6px; border-radius: 4px; }}
-        .plane-airline {{ font-size: 13px; color: #4a5568; margin-top: 4px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-        
-        .grid-info {{ display: flex; justify-content: space-between; text-align: center; border-top: 1px solid #edf2f7; padding-top: 10px; margin-top: 10px; }}
-        .grid-item {{ display: flex; flex-direction: column; width: 33%; }}
-        .grid-val {{ font-size: 17px; font-weight: 800; color: #2d3748; margin-top: 2px; }}
-        .grid-lbl {{ font-size: 11px; color: #a0aec0; text-transform: uppercase; font-weight: 700; }}
-        
         .icon-wrapper {{
             width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
             filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.6)); transition: transform 0.4s linear;
         }}
+
+        /* 비행기 옆에 고정되는 세부정보 카드 스타일 */
+        .plane-hud-card {{
+            background: rgba(255, 255, 255, 0.96) !important;
+            border: 1px solid rgba(0,0,0,0.15) !important;
+            border-radius: 10px !important;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.25) !important;
+            padding: 8px 12px !important;
+            color: #2c3e50 !important;
+            font-size: 12px !important;
+            min-width: 170px !important;
+            backdrop-filter: blur(6px) !important;
+            pointer-events: auto !important;
+        }}
+        .plane-hud-card:before {{
+            border-right-color: rgba(255, 255, 255, 0.96) !important;
+        }}
+        .card-header {{
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #edf2f7; padding-bottom: 4px; margin-bottom: 5px;
+        }}
+        .card-callsign {{ font-size: 16px; font-weight: 900; color: #e74c3c; line-height: 1; }}
+        .card-type {{ font-size: 10px; font-weight: bold; background: #edf2f7; padding: 2px 5px; border-radius: 3px; color: #4a5568; }}
+        .card-airline {{ font-size: 11px; font-weight: 600; color: #2d3748; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; margin-bottom: 6px; }}
+        .card-metrics {{
+            display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 11px;
+        }}
+        .card-metrics div {{ display: flex; flex-direction: column; }}
+        .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; }}
+        .card-value {{ font-size: 12px; font-weight: 800; color: #2d3748; }}
     </style>
 </head>
 <body>
@@ -184,28 +197,6 @@ radar_base_html = f"""
             <span style="color:#2ecc71;">● 수평</span>
             <span style="color:#f1c40f;">● 상승</span>
             <span style="color:#3498db;">● 하강</span>
-        </div>
-    </div>
-
-    <div class="bottom-hud" id="telemetry-card">
-        <div class="plane-header">
-            <span class="plane-callsign" id="p-callsign">탐색 중...</span>
-            <span class="plane-type" id="p-type">-</span>
-        </div>
-        <div class="plane-airline" id="p-airline">지도 위의 기체를 터치하거나 클릭하세요.</div>
-        <div class="grid-info">
-            <div class="grid-item">
-                <span class="grid-lbl">Altitude</span>
-                <span class="grid-val" id="p-alt">-</span>
-            </div>
-            <div class="grid-item">
-                <span class="grid-lbl">Speed</span>
-                <span class="grid-val" id="p-spd">-</span>
-            </div>
-            <div class="grid-item">
-                <span class="grid-lbl">Status</span>
-                <span class="grid-val" id="p-status">-</span>
-            </div>
         </div>
     </div>
 
@@ -265,18 +256,46 @@ radar_base_html = f"""
             return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        function updatePanel(p, statusTxt, color) {{
-            document.getElementById('p-callsign').innerText = p.callsign;
-            document.getElementById('p-callsign').style.color = color;
-            document.getElementById('p-type').innerText = p.type || 'N/A';
-            document.getElementById('p-airline').innerText = p.airline || '일반 / 개인 항공기';
-            document.getElementById('p-alt').innerText = `${{Math.round(p.alt).toLocaleString()}} ft`;
-            document.getElementById('p-spd').innerText = `${{Math.round(p.spd)}} kts`;
-            document.getElementById('p-status').innerText = statusTxt;
-            document.getElementById('p-status').style.color = color;
+        // 항공기 옆에 밀착 고정될 상세 정보 HTML 생성기
+        function makeHudContent(p, statusTxt, color) {{
+            return `
+            <div class="card-header">
+                <span class="card-callsign">${{p.callsign}}</span>
+                <span class="card-type">${{p.type || 'N/A'}}</span>
+            </div>
+            <div class="card-airline">${{p.airline || '일반 / 개인 항공기'}}</div>
+            <div class="card-metrics">
+                <div>
+                    <span class="card-label">Altitude</span>
+                    <span class="card-value">${{Math.round(p.alt).toLocaleString()}} ft</span>
+                </div>
+                <div>
+                    <span class="card-label">Speed</span>
+                    <span class="card-value">${{Math.round(p.spd)}} kts</span>
+                </div>
+                <div style="grid-column: span 2; margin-top: 3px;">
+                    <span class="card-label">Status</span>
+                    <span class="card-value" style="color: ${{color}};">${{statusTxt}}</span>
+                </div>
+            </div>
+            `;
         }}
 
-        // 파이썬에서 push된 데이터를 수신하여 깜빡임 없이 마커/항적선 갱신
+        // 지도 빈 곳 클릭 시 선택 해제
+        map.on('click', function(e) {{
+            if (selectedIcao && markers[selectedIcao]) {{
+                markers[selectedIcao].unbindTooltip();
+                // 기본 간이 툴팁으로 복귀
+                const hist = flightHistory[selectedIcao];
+                const latest = hist ? hist[hist.length - 1] : null;
+                if (latest) {{
+                    markers[selectedIcao].bindTooltip(`<b>${{latest.callsign}}</b><br>${{Math.round(latest.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
+                }}
+            }}
+            selectedIcao = null;
+        }});
+
+        // 파이썬에서 push된 데이터를 수신하여 깜빡임 없이 마커/항적선/상세 툴팁 갱신
         window.updateFlightRadar = function(payload) {{
             const planes = payload.planes || [];
             const sourceName = payload.source || '';
@@ -293,21 +312,13 @@ radar_base_html = f"""
 
             const now = Date.now();
             const currentIcaos = new Set();
-            let nearestPlane = null;
-            let minDist = 999999;
 
             planes.forEach(p => {{
                 const icao = p.hex;
                 if (!icao || p.lat == null || p.lon == null) return;
                 currentIcaos.add(icao);
 
-                const dist = Math.hypot(p.lat - homeLat, p.lon - homeLon);
-                if (dist < minDist) {{
-                    minDist = dist;
-                    nearestPlane = p;
-                }}
-
-                // 최초 감지 시 30초 이전 가상 꼬리선 보간
+                // 최초 감지 시 과거 꼬리선 보간
                 if (!flightHistory[icao]) {{
                     flightHistory[icao] = [];
                     if (p.alt > 0 && p.spd > 100) {{
@@ -346,32 +357,66 @@ radar_base_html = f"""
 
                 const hist = flightHistory[icao];
                 const status = getStatus(hist);
+                const isSelected = (selectedIcao === icao);
 
-                // 마커 위치 및 각도만 부드럽게 갱신 (지우지 않음)
+                // 마커 생성 또는 이동
                 const newIcon = getIcon(p.track, status.color);
                 if (markers[icao]) {{
                     markers[icao].setLatLng([p.lat, p.lon]);
                     markers[icao].setIcon(newIcon);
                 }} else {{
                     const marker = L.marker([p.lat, p.lon], {{ icon: newIcon }}).addTo(map);
-                    marker.bindTooltip(`<b>${{p.callsign}}</b><br>${{Math.round(p.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
+                    
+                    marker.on('click', L.DomEvent.stopPropagation); // 지도 클릭 이벤트로 전파 방지
                     marker.on('click', () => {{
+                        // 이전 선택된 마커가 있다면 툴팁 원복
+                        if (selectedIcao && markers[selectedIcao] && selectedIcao !== icao) {{
+                            markers[selectedIcao].unbindTooltip();
+                            const prevHist = flightHistory[selectedIcao];
+                            const prevP = prevHist ? prevHist[prevHist.length - 1] : null;
+                            if (prevP) {{
+                                markers[selectedIcao].bindTooltip(`<b>${{prevP.callsign}}</b><br>${{Math.round(prevP.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
+                            }}
+                        }}
+
                         selectedIcao = icao;
-                        updatePanel(p, status.text, status.color);
+                        
+                        // 클릭된 비행기 옆에 상세 HUD 카드 고정 부착
+                        marker.unbindTooltip();
+                        marker.bindTooltip(makeHudContent(p, status.text, status.color), {{
+                            permanent: true,
+                            direction: 'right',
+                            offset: [15, -15],
+                            className: 'plane-hud-card'
+                        }}).openTooltip();
                     }});
+                    
                     markers[icao] = marker;
+                }}
+
+                // 선택된 비행기인 경우, 마커 옆 고정 툴팁 내용 실시간 갱신 (위치 따라다님)
+                if (isSelected) {{
+                    markers[icao].unbindTooltip();
+                    markers[icao].bindTooltip(makeHudContent(p, status.text, status.color), {{
+                        permanent: true,
+                        direction: 'right',
+                        offset: [15, -15],
+                        className: 'plane-hud-card'
+                    }}).openTooltip();
+                }} else if (!markers[icao].getTooltip()) {{
+                    markers[icao].bindTooltip(`<b>${{p.callsign}}</b><br>${{Math.round(p.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
                 }}
 
                 // 꼬리선 갱신
                 const latlngs = hist.map(pt => [pt.lat, pt.lon]);
                 if (polylines[icao]) {{
                     polylines[icao].setLatLngs(latlngs);
-                    polylines[icao].setStyle({{ color: status.color }});
+                    polylines[icao].setStyle({{ color: status.color, weight: isSelected ? 4 : 3 }});
                 }} else {{
                     polylines[icao] = L.polyline(latlngs, {{
                         color: status.color,
-                        weight: 3,
-                        opacity: 0.75
+                        weight: isSelected ? 4 : 3,
+                        opacity: isSelected ? 0.9 : 0.75
                     }}).addTo(map);
                 }}
             }});
@@ -387,12 +432,6 @@ radar_base_html = f"""
                     if (selectedIcao === icao) selectedIcao = null;
                 }}
             }});
-
-            let focused = planes.find(p => p.hex === selectedIcao) || nearestPlane;
-            if (focused) {{
-                const st = getStatus(flightHistory[focused.hex]);
-                updatePanel(focused, st.text, st.color);
-            }}
         }};
 
         // 더블클릭/더블탭 홈포인트 즉시 재설정
@@ -422,15 +461,14 @@ radar_base_html = f"""
 </html>
 """
 
-components.html(radar_base_html, height=820, scrolling=False)
+components.html(radar_base_html, height=850, scrolling=False)
 
-# 4. 실시간 브릿지 프래그먼트 (5초마다 파이썬이 데이터를 긁어와 브라우저 함수를 직접 호출)
+# 4. 실시간 브릿지 프래그먼트 (5초마다 파이썬이 데이터 전송)
 @st.fragment(run_every="5s")
 def sync_data_stream():
     planes, source_name = fetch_flight_data(st.session_state.home_coords[0], st.session_state.home_coords[1])
     payload = json.dumps({"planes": planes, "source": source_name})
 
-    # 지도를 다시 그리지 않고, 이미 떠 있는 iframe 내부의 updateFlightRadar 함수만 호출
     injector_script = f"""
     <script>
         const iframes = window.parent.document.querySelectorAll('iframe');

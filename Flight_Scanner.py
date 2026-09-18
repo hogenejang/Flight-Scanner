@@ -57,12 +57,32 @@ def get_airlines_json():
 airlines_json_str = get_airlines_json()
 
 if "home_coords" not in st.session_state:
-    st.session_state.home_coords = [37.4600, 126.4400] # 기본값을 인천공항으로 설정
+    st.session_state.home_coords = [37.4600, 126.4400] # 인천공항
 
 with st.sidebar:
     st.header("⚙️ Radar Settings")
     st.info("지도 아무 곳이나 더블클릭하면 150km 스캔 위치가 즉시 이동합니다.")
     
+    st.markdown("### 📡 Data Source")
+    source_option = st.selectbox(
+        "항적 정보 소스 선택",
+        options=[
+            "Auto (하이브리드 자동 우회)", 
+            "Airplanes.live (오픈망)", 
+            "OpenSky Network (관제망)", 
+            "Flightradar24 (상용망)"
+        ]
+    )
+    
+    source_map = {
+        "Auto (하이브리드 자동 우회)": "auto",
+        "Airplanes.live (오픈망)": "airplanes",
+        "OpenSky Network (관제망)": "opensky",
+        "Flightradar24 (상용망)": "fr24"
+    }
+    selected_source_js = source_map[source_option]
+    
+    st.markdown("---")
     st.markdown("### 📍 Location Presets")
     if st.button("🇰🇷 인천 국제공항", use_container_width=True):
         st.session_state.home_coords = [37.4600, 126.4400]
@@ -77,7 +97,7 @@ with st.sidebar:
 init_lat = st.session_state.home_coords[0]
 init_lon = st.session_state.home_coords[1]
 
-# 3중 하이브리드 엔진 (Airplanes.live -> OpenSky -> FR24)이 탑재된 HTML
+# HTML / JS 엔진
 radar_html = f"""
 <!DOCTYPE html>
 <html>
@@ -126,7 +146,7 @@ radar_html = f"""
     <div id="map"></div>
 
     <div class="top-hud">
-        <div class="hud-box" id="status-box">📡 위성망 접속 중...</div>
+        <div class="hud-box" id="status-box">📡 소스 연결 대기 중...</div>
         <div class="hud-box">
             <span style="color:#2ecc71;">● 수평</span>
             <span style="color:#f1c40f;">● 상승</span>
@@ -160,6 +180,7 @@ radar_html = f"""
         const airlinesDB = {airlines_json_str};
         let homeLat = {init_lat};
         let homeLon = {init_lon};
+        const dataSourceMode = "{selected_source_js}"; // 파이썬에서 주입된 선택값
 
         const map = L.map('map', {{ center: [homeLat, homeLon], zoom: 9, zoomControl: false, doubleClickZoom: false }});
         L.control.zoom({{ position: 'bottomright' }}).addTo(map);
@@ -191,13 +212,58 @@ radar_html = f"""
             return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        // 3중 하이브리드 데이터 패치 엔진
+        // 소스별 Fetch 함수 분리
+        async function fetchAirplanesLive(lat, lon) {{
+            const res = await fetch(`https://api.airplanes.live/v2/point/${{lat.toFixed(3)}}/${{lon.toFixed(3)}}/80`);
+            if (res.ok) {{
+                const json = await res.json();
+                if (json.ac) return json.ac;
+            }}
+            return [];
+        }}
+
+        async function fetchOpenSky(minLat, maxLat, minLon, maxLon) {{
+            const res = await fetch(`https://opensky-network.org/api/states/all?lamin=${{minLat}}&lomin=${{minLon}}&lamax=${{maxLat}}&lomax=${{maxLon}}`);
+            if (res.ok) {{
+                const json = await res.json();
+                if (json.states && json.states.length > 0) {{
+                    return json.states.map(p => ({{
+                        hex: p[0], flight: p[1] ? p[1].trim() : "", lon: p[5], lat: p[6],
+                        alt_baro: p[7] ? p[7] * 3.28084 : 0, gs: p[9] ? p[9] * 1.94384 : 0,
+                        track: p[10] || 0, t: "N/A"
+                    }}));
+                }}
+            }}
+            return [];
+        }}
+
+        async function fetchFlightRadar24(minLat, maxLat, minLon, maxLon) {{
+            const fr24Url = `https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=${{maxLat}},${{minLat}},${{minLon}},${{maxLon}}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1`;
+            const res = await fetch(`https://api.allorigins.win/raw?url=${{encodeURIComponent(fr24Url)}}&cb=${{Date.now()}}`);
+            if (res.ok) {{
+                const json = await res.json();
+                let arr = [];
+                for (let key in json) {{
+                    if (key === 'full_count' || key === 'version' || key === 'stats') continue;
+                    let p = json[key];
+                    arr.push({{
+                        hex: p[0], lat: p[1], lon: p[2], track: p[3], alt_baro: p[4],
+                        gs: p[5], t: p[8], flight: p[13] || p[16] || p[0]
+                    }});
+                }}
+                return arr;
+            }}
+            return [];
+        }}
+
+        // 메인 데이터 패치 로직
         async function fetchFlightData() {{
             document.getElementById('status-box').innerText = "📡 스캔 중...";
             document.getElementById('status-box').style.color = "#f39c12";
 
             let planes = [];
             let sourceNetwork = "";
+            
             const radiusLat = 1.35; 
             const radiusLon = 1.7;
             const minLat = (homeLat - radiusLat).toFixed(3);
@@ -205,58 +271,34 @@ radar_html = f"""
             const minLon = (homeLon - radiusLon).toFixed(3);
             const maxLon = (homeLon + radiusLon).toFixed(3);
 
-            // 1순위: Airplanes.live (미국 등 커버리지 1위)
-            try {{
-                const res = await fetch(`https://api.airplanes.live/v2/point/${{homeLat.toFixed(3)}}/${{homeLon.toFixed(3)}}/80`);
-                if (res.ok) {{
-                    const json = await res.json();
-                    if (json.ac && json.ac.length > 5) {{
-                        planes = json.ac;
-                        sourceNetwork = "Net 1";
-                    }}
-                }}
-            }} catch (e) {{}}
-
-            // 2순위: OpenSky Network (유럽/아시아 커버리지 좋음)
-            if (planes.length < 5) {{
+            // 1. Airplanes.live (선택되었거나 Auto인 경우)
+            if (dataSourceMode === "auto" || dataSourceMode === "airplanes") {{
                 try {{
-                    const res = await fetch(`https://opensky-network.org/api/states/all?lamin=${{minLat}}&lomin=${{minLon}}&lamax=${{maxLat}}&lomax=${{maxLon}}`);
-                    if (res.ok) {{
-                        const json = await res.json();
-                        if (json.states && json.states.length > 0) {{
-                            planes = json.states.map(p => ({{
-                                hex: p[0], flight: p[1] ? p[1].trim() : "", lon: p[5], lat: p[6],
-                                alt_baro: p[7] ? p[7] * 3.28084 : 0, gs: p[9] ? p[9] * 1.94384 : 0,
-                                track: p[10] || 0, t: "N/A"
-                            }}));
-                            sourceNetwork = "Net 2";
-                        }}
-                    }}
+                    let result = await fetchAirplanesLive(homeLat, homeLon);
+                    if (result.length > 0) {{ planes = result; sourceNetwork = "Airplanes"; }}
                 }} catch (e) {{}}
             }}
 
-            // 3순위: FR24 우회 프록시 (최후의 수단 - 전 세계 100% 커버리지)
-            if (planes.length === 0) {{
+            // 2. OpenSky Network (선택되었거나 (Auto이고 앞단 실패시))
+            if ((dataSourceMode === "opensky") || (dataSourceMode === "auto" && planes.length < 5)) {{
                 try {{
-                    const fr24Url = `https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=${{maxLat}},${{minLat}},${{minLon}},${{maxLon}}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1`;
-                    const res = await fetch(`https://api.allorigins.win/raw?url=${{encodeURIComponent(fr24Url)}}&cb=${{Date.now()}}`);
-                    if (res.ok) {{
-                        const json = await res.json();
-                        for (let key in json) {{
-                            if (key === 'full_count' || key === 'version' || key === 'stats') continue;
-                            let p = json[key];
-                            planes.push({{
-                                hex: p[0], lat: p[1], lon: p[2], track: p[3], alt_baro: p[4],
-                                gs: p[5], t: p[8], flight: p[13] || p[16] || p[0]
-                            }});
-                        }}
-                        if (planes.length > 0) sourceNetwork = "Net 3";
-                    }}
+                    let result = await fetchOpenSky(minLat, maxLat, minLon, maxLon);
+                    if (result.length > 0) {{ planes = result; sourceNetwork = "OpenSky"; }}
                 }} catch (e) {{}}
             }}
 
+            // 3. FR24 Proxy (선택되었거나 (Auto이고 앞단 전부 실패시))
+            if ((dataSourceMode === "fr24") || (dataSourceMode === "auto" && planes.length === 0)) {{
+                try {{
+                    let result = await fetchFlightRadar24(minLat, maxLat, minLon, maxLon);
+                    if (result.length > 0) {{ planes = result; sourceNetwork = "FR24"; }}
+                }} catch (e) {{}}
+            }}
+
+            // 실패 및 0대 처리
             if (planes.length === 0) {{
-                document.getElementById('status-box').innerText = "📡 0대 (해당 지역 트래픽 없음)";
+                let netName = dataSourceMode === "auto" ? "하이브리드" : dataSourceMode;
+                document.getElementById('status-box').innerText = `📡 0대 (트래픽 없음 - ${netName})`;
                 document.getElementById('status-box').style.color = "#7f8c8d";
                 return;
             }}
@@ -383,7 +425,6 @@ radar_html = f"""
 
         map.on('dblclick', function(e) {{ relocateHomePoint(e.latlng.lat, e.latlng.lng); }});
         
-        // OpenSky API 제한(10초당 1회)을 고려하여 10초 주기로 갱신
         fetchFlightData();
         setInterval(fetchFlightData, 10000);
     </script>

@@ -23,7 +23,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 1. 항공사 데이터베이스 (IATA/ICAO 듀얼 매핑)
+# 1. 항공사 데이터베이스
 DEFAULT_AIRLINES = {
     "KE": "대한항공 (Korean Air)", "KAL": "대한항공 (Korean Air)",
     "OZ": "아시아나항공 (Asiana Airlines)", "AAR": "아시아나항공 (Asiana Airlines)",
@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (반경 100km)
+# 2. 백엔드 데이터 수집
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -198,7 +198,7 @@ with st.sidebar:
 
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
-# 4. 지도 프레임 렌더링
+# 4. 지도 프레임 렌더링 (서울-제주 F711/F722 복선 항로 레이어 포함)
 radar_base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -247,7 +247,7 @@ radar_base_html = f"""
         .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 1px; }}
         .card-value {{ font-size: 13px; font-weight: 800; color: #2d3748; white-space: nowrap; }}
 
-        /* 심플하고 은은한 Fix 전용 스타일 (배경 박스 제거) */
+        /* 심플한 Fix 전용 스타일 */
         .fix-dot {{
             width: 5px; height: 5px; background: #718096; border-radius: 50%;
             border: 1px solid #ffffff; box-shadow: 0 0 2px rgba(0,0,0,0.5);
@@ -259,6 +259,22 @@ radar_base_html = f"""
             font-size: 9px !important; font-weight: 700 !important; color: #4a5568 !important;
             text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
             white-space: nowrap; pointer-events: none; opacity: 0.85;
+        }}
+
+        /* 절제된 항로 라벨 스타일 */
+        .airway-label {{
+            font-size: 9px !important; font-weight: 800 !important;
+            letter-spacing: 0.5px; opacity: 0.8;
+            padding: 1px 4px !important; border-radius: 3px !important;
+            pointer-events: none !important;
+        }}
+        .airway-label-south {{
+            color: #2c5282 !important; background: rgba(235, 248, 255, 0.75) !important;
+            border: 1px solid #bee3f8 !important;
+        }}
+        .airway-label-north {{
+            color: #285e61 !important; background: rgba(230, 255, 250, 0.75) !important;
+            border: 1px solid #b2f5ea !important;
         }}
     </style>
 </head>
@@ -308,16 +324,76 @@ radar_base_html = f"""
         }}).addTo(map).bindTooltip("Home Point (100km)");
 
         // -------------------------------------------------------------
-        // 심플 Fix 레이어 (SID/STAR + IAF, IF, FAF 계기접근 픽스)
+        // 서울-제주 간 F711(Y711) / F722(Y722) 복선 항로 오버레이 레이어
+        // -------------------------------------------------------------
+        const airwayLayer = L.layerGroup().addTo(map);
+
+        // 1. 남행 항로 Y711 (F711 편도: 서울/김포/인천 -> 제주)
+        const pathY711 = [
+            [37.4306, 126.9389], // SEL (안양)
+            [37.0950, 127.0300], // OSN (오산)
+            [36.3783, 127.3917], // TJN (대전)
+            [35.4333, 127.4667], // GOMHO (남원 방면)
+            [33.8000, 126.6333], // SOSDO (제주 북부 진입)
+            [33.5113, 126.4930]  // RKPC (제주)
+        ];
+
+        L.polyline(pathY711, {{
+            color: '#3182ce',
+            weight: 2,
+            dashArray: '5, 8',
+            opacity: 0.55
+        }}).addTo(airwayLayer);
+
+        // 항로 텍스트 라벨 (중간 기착점 상공)
+        L.marker([36.0000, 127.4300], {{
+            icon: L.divIcon({{
+                className: 'airway-label airway-label-south',
+                html: 'Y711 (F711) ↓ Southbound',
+                iconSize: [125, 16],
+                iconAnchor: [62, 8]
+            }}),
+            interactive: false
+        }}).addTo(airwayLayer);
+
+        // 2. 북행 항로 Y722 (F722 편도: 제주 -> 서해안 -> 서울/김포)
+        const pathY722 = [
+            [33.5113, 126.4930], // RKPC (제주)
+            [33.6833, 126.3500], // TAMNA (제주 북서)
+            [34.5833, 126.1500], // JUGRY (서해 남부)
+            [36.9833, 126.6500], // GUKDO (태안/서산)
+            [37.0733, 126.2417], // BOPTA (서해 북상 전이)
+            [37.4306, 126.9389]  // SEL / 김포 접근
+        ];
+
+        L.polyline(pathY722, {{
+            color: '#319795',
+            weight: 2,
+            dashArray: '5, 8',
+            opacity: 0.55
+        }}).addTo(airwayLayer);
+
+        L.marker([35.8000, 126.4000], {{
+            icon: L.divIcon({{
+                className: 'airway-label airway-label-north',
+                html: 'Y722 (F722) ↑ Northbound',
+                iconSize: [125, 16],
+                iconAnchor: [62, 8]
+            }}),
+            interactive: false
+        }}).addTo(airwayLayer);
+
+        // -------------------------------------------------------------
+        // 심플 Fix 레이어 (SID/STAR + 계기접근 IAF, IF, FAF)
         // -------------------------------------------------------------
         const fixLayer = L.layerGroup().addTo(map);
 
         const navFixes = [
             // [인천 RKSI]
-            {{ name: "BOPTA", pos: [37.0733, 126.2417], cat: "SID", desc: "인천 표준출발 남서분기" }},
+            {{ name: "BOPTA", pos: [37.0733, 126.2417], cat: "SID/Y722", desc: "인천 남서분기 / Y722 합류" }},
             {{ name: "NOUTE", pos: [37.2167, 125.8667], cat: "SID", desc: "인천 서해 출역점" }},
             {{ name: "EGOBA", pos: [37.6667, 126.8833], cat: "IAF/SID", desc: "인천 북동 IAF / SID 전이" }},
-            {{ name: "GUKDO", pos: [36.9833, 126.6500], cat: "IAF/STAR", desc: "인천 남부 주진입 IAF" }},
+            {{ name: "GUKDO", pos: [36.9833, 126.6500], cat: "IAF/Y722", desc: "인천 주진입 IAF / Y722 픽스" }},
             {{ name: "KARAS", pos: [37.1500, 126.0833], cat: "STAR", desc: "인천 남서 접근점" }},
             {{ name: "REKTO", pos: [37.2667, 126.1500], cat: "IAF", desc: "인천 RWY 33/34 진입 IAF" }},
             {{ name: "OSPUR", pos: [37.6833, 126.2667], cat: "IAF", desc: "인천 RWY 15/16 진입 IAF" }},
@@ -326,8 +402,9 @@ radar_base_html = f"""
             {{ name: "KASOM", pos: [37.5450, 126.3817], cat: "FAF", desc: "인천 RWY 15R 최종접근점 (FAF)" }},
             {{ name: "ENPIL", pos: [37.3883, 126.4983], cat: "FAF", desc: "인천 RWY 33L 최종접근점 (FAF)" }},
 
-            // [김포 RKSS]
-            {{ name: "SEL", pos: [37.4306, 126.9389], cat: "IAF/SID", desc: "안양 VOR (김포 남동 IAF/출발)" }},
+            // [김포 RKSS 및 항로 기점]
+            {{ name: "SEL", pos: [37.4306, 126.9389], cat: "IAF/Y711", desc: "안양 VOR (Y711 항로 시발점)" }},
+            {{ name: "OSN", pos: [37.0950, 127.0300], cat: "WAYPOINT", desc: "오산 VOR (Y711 항로점)" }},
             {{ name: "SOTSU", pos: [37.3000, 126.9000], cat: "SID", desc: "김포 남행 회랑 픽스" }},
             {{ name: "BULLS", pos: [37.4167, 127.1833], cat: "IAF", desc: "김포 남동 진입 IAF" }},
             {{ name: "OLMEN", pos: [37.7833, 127.0500], cat: "STAR", desc: "김포 북동 접근 픽스" }},
@@ -338,9 +415,9 @@ radar_base_html = f"""
             {{ name: "METRO", pos: [37.6050, 126.7450], cat: "FAF", desc: "김포 RWY 14L 최종접근점 (FAF)" }},
 
             // [제주 RKPC]
-            {{ name: "TAMNA", pos: [33.6833, 126.3500], cat: "IAF/SID", desc: "제주 북서 진입 IAF / SID" }},
+            {{ name: "TAMNA", pos: [33.6833, 126.3500], cat: "IAF/Y722", desc: "제주 북서 진입 / Y722 북상 시발점" }},
             {{ name: "DOTOL", pos: [33.2833, 126.2167], cat: "IAF/SID", desc: "제주 남서 진입 IAF / SID" }},
-            {{ name: "SOSDO", pos: [33.8000, 126.6333], cat: "IAF/STAR", desc: "내륙-제주 북부 주진입 IAF" }},
+            {{ name: "SOSDO", pos: [33.8000, 126.6333], cat: "IAF/Y711", desc: "Y711 종착 / 제주 북부 주진입 IAF" }},
             {{ name: "SARAS", pos: [33.4500, 126.8500], cat: "IAF", desc: "제주 동부 진입 IAF" }},
             {{ name: "PC801", pos: [33.4750, 126.3667], cat: "IF", desc: "제주 RWY 07 중간접근점" }},
             {{ name: "PC901", pos: [33.5450, 126.6200], cat: "IF", desc: "제주 RWY 25 중간접근점" }},
@@ -348,13 +425,11 @@ radar_base_html = f"""
             {{ name: "LAVAR", pos: [33.5283, 126.5567], cat: "FAF", desc: "제주 RWY 25 최종접근점 (FAF)" }}
         ];
 
-        // 심플 마커 및 텍스트 렌더링
         navFixes.forEach(f => {{
             let dotClass = 'fix-dot';
             if (f.cat.includes('IAF')) dotClass += ' fix-dot-iaf';
             if (f.cat.includes('FAF')) dotClass += ' fix-dot-faf';
 
-            // 마우스 호버 시 상세 정보 표시
             const marker = L.marker(f.pos, {{
                 icon: L.divIcon({{
                     className: '',
@@ -365,7 +440,6 @@ radar_base_html = f"""
             }}).addTo(fixLayer);
             marker.bindTooltip(`<b>${{f.name}}</b> [${{f.cat}}]<br>${{f.desc}}`, {{ direction: 'top', opacity: 0.9 }});
 
-            // 심플 텍스트 태그
             L.marker(f.pos, {{
                 icon: L.divIcon({{
                     className: 'fix-text-tag',

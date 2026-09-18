@@ -201,7 +201,7 @@ def fetch_flight_data(lat, lon):
 
 # 3. 홈포인트 좌표 동기화
 if "home_coords" not in st.session_state:
-    st.session_state.home_coords = [37.4600, 126.4400]
+    st.session_state.home_coords = [37.151575, 126.743044]
 
 qp = st.query_params
 if "lat" in qp and "lon" in qp:

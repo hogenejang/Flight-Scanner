@@ -1,5 +1,9 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import requests
+import json
+import csv
+import os
 
 st.set_page_config(
     page_title="Live Flight Scanner",
@@ -8,22 +12,55 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 모바일 여백 및 상하 스크롤바 제거
+# 모바일 화면 공간 최적화 (여백 제거)
 st.markdown("""
 <style>
-    .block-container { padding: 0 !important; max-width: 100% !important; }
+    .block-container { padding: 0 !important; max-width: 100% !important; overflow: hidden; }
     header { visibility: hidden; }
     footer { visibility: hidden; }
-    iframe { border: none !important; }
+    iframe { border: none !important; width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 순수 프론트엔드 단일 페이지:
-# 1. Leaflet 지도를 최초 1회만 로드
-# 2. CORS 우회 프록시(allorigins)를 통해 8초마다 adsb.lol 데이터를 백그라운드 수신
-# 3. 지도 파괴 없이 마커 좌표(.setLatLng)와 선만 부드럽게 갱신 (st.rerun 없음 = 깜빡임 원천 차단)
-# 4. 더블클릭 시 홈포인트 및 100km 원형 즉시 이동
-radar_standalone_html = """
+AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
+LOCAL_AIRLINE_FILE = "airlines_db.dat"
+
+# 1. 항공사 데이터베이스를 로드하여 JS로 넘기기 위해 JSON으로 변환
+@st.cache_data(ttl=86400)
+def get_airlines_json():
+    data_text = ""
+    if os.path.exists(LOCAL_AIRLINE_FILE):
+        try:
+            with open(LOCAL_AIRLINE_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                data_text = f.read()
+        except:
+            pass
+
+    if not data_text:
+        try:
+            res = requests.get(AIRLINES_DATA_URL, timeout=10)
+            if res.status_code == 200:
+                data_text = res.text
+                with open(LOCAL_AIRLINE_FILE, "w", encoding="utf-8", errors="ignore") as f:
+                    f.write(data_text)
+        except:
+            pass
+
+    db = {}
+    if data_text:
+        reader = csv.reader(data_text.strip().splitlines())
+        for row in reader:
+            if len(row) >= 7:
+                name = row[1].strip()
+                icao = row[4].strip().upper()
+                if len(icao) == 3 and icao != "\\N":
+                    db[icao] = name
+    return json.dumps(db)
+
+airlines_json_str = get_airlines_json()
+
+# 2. 무깜빡임 실시간 레이더 HTML/JS 엔진 (다중 프록시 및 에러 처리 적용)
+radar_html = f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -32,29 +69,30 @@ radar_standalone_html = """
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        #map { height: calc(100vh - 90px); width: 100%; background: #e5e9ec; }
-        .header-bar {
-            height: 38px; background: #1e272c; color: #ecf0f1; padding: 0 12px;
+        body, html {{ margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+        #map {{ height: calc(100vh - 86px); width: 100%; background: #e5e9ec; }}
+        .header-bar {{
+            height: 36px; background: #1e272c; color: #ecf0f1; padding: 0 12px;
             display: flex; justify-content: space-between; align-items: center; font-size: 12px;
-        }
-        .legend-item { display: inline-flex; align-items: center; margin-left: 10px; }
-        .legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
-        .telemetry-bar {
-            height: 52px; background: #ffffff; border-top: 1px solid #dcdde1; padding: 4px 12px;
+        }}
+        .legend-item {{ display: inline-flex; align-items: center; margin-left: 8px; }}
+        .legend-dot {{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }}
+        .telemetry-bar {{
+            height: 50px; background: #ffffff; border-top: 1px solid #dcdde1; padding: 4px 12px;
             display: flex; align-items: center; gap: 8px; overflow-x: auto; font-size: 12px; white-space: nowrap;
-        }
-        .badge { background: #f1f2f6; padding: 4px 8px; border-radius: 4px; color: #2f3542; border: 1px solid #e4e7eb; }
-        .badge b { color: #1e272c; }
-        .plane-marker-icon {
-            display: flex; justify-content: center; align-items: center;
-            transition: transform 0.4s linear;
-        }
+        }}
+        .badge {{ background: #f1f2f6; padding: 4px 8px; border-radius: 4px; color: #2f3542; border: 1px solid #e4e7eb; display: inline-block; }}
+        .badge b {{ color: #1e272c; }}
+        /* 아이콘 회전을 위한 래퍼 클래스 */
+        .icon-wrapper {{
+            width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+            filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5)); transition: transform 0.4s linear;
+        }}
     </style>
 </head>
 <body>
     <div class="header-bar">
-        <span>🎯 <b>100km Coverage Radar</b> (Double-click/tap map to relocate)</span>
+        <span>🎯 <b>Double-click/Tap map</b> to set Home point</span>
         <div>
             <span class="legend-item"><span class="legend-dot" style="background:#2ecc71;"></span>Level</span>
             <span class="legend-item"><span class="legend-dot" style="background:#f1c40f;"></span>Climb</span>
@@ -65,111 +103,141 @@ radar_standalone_html = """
     <div id="map"></div>
 
     <div class="telemetry-bar">
+        <span class="badge">API: <b id="tel-count" style="color:#e74c3c;">Initializing...</b></span>
         <span class="badge">Plane: <b id="tel-callsign">Click a plane</b></span>
+        <span class="badge">Airline: <b id="tel-airline">-</b></span>
         <span class="badge">Model: <b id="tel-type">-</b></span>
         <span class="badge">Alt: <b id="tel-alt">-</b></span>
         <span class="badge">Speed: <b id="tel-spd">-</b></span>
         <span class="badge">Status: <b id="tel-status">-</b></span>
-        <span class="badge">Count: <b id="tel-count">0</b></span>
     </div>
 
     <script>
-        // 기본 좌표 (서울)
+        // 파이썬에서 넘겨준 전 세계 항공사 DB
+        const airlinesDB = {airlines_json_str};
+        
         let homeLat = 37.5665;
         let homeLon = 126.9780;
 
-        const map = L.map('map', {
+        const map = L.map('map', {{
             center: [homeLat, homeLon],
             zoom: 9,
             zoomControl: false,
-            doubleClickZoom: false
-        });
-        L.control.zoom({ position: 'topright' }).addTo(map);
+            doubleClickZoom: false // 커스텀 더블클릭 이벤트(홈포인트 이동)를 위해 기본 줌 해제
+        }});
+        L.control.zoom({{ position: 'topright' }}).addTo(map);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
             maxZoom: 18,
             attribution: '© OpenStreetMap'
-        }).addTo(map);
+        }}).addTo(map);
 
-        // 100km 반경 원형 및 홈포인트 마커
-        let radarCircle = L.circle([homeLat, homeLon], {
+        let radarCircle = L.circle([homeLat, homeLon], {{
             radius: 100000,
             color: '#2980b9',
             weight: 2,
             fillColor: '#3498db',
-            fillOpacity: 0.04
-        }).addTo(map);
+            fillOpacity: 0.05
+        }}).addTo(map);
 
-        let homeMarker = L.circleMarker([homeLat, homeLon], {
-            radius: 7,
+        let homeMarker = L.circleMarker([homeLat, homeLon], {{
+            radius: 6,
             color: '#c0392b',
             fillColor: '#ffffff',
             fillOpacity: 1,
             weight: 3
-        }).addTo(map).bindTooltip("Home point");
+        }}).addTo(map).bindTooltip("Home Point");
 
-        // 런타임 저장소 (DOM을 지우지 않고 마커를 계속 재사용)
-        let flightHistory = {};
-        let markers = {};
-        let polylines = {};
+        let flightHistory = {{}};
+        let markers = {{}};
+        let polylines = {{}};
         let selectedIcao = null;
 
-        // 세모 모양 SVG 아이콘 (상태 색상 + 기수 각도 회전)
-        function getTriangleIcon(heading, color) {
+        // 세모 마커 생성 (회전을 래퍼 div에 적용하여 호환성 강화)
+        function getTriangleIcon(heading, color) {{
             const deg = heading || 0;
-            const svg = `
-            <svg width="20" height="20" viewBox="0 0 20 20" style="transform: rotate(${deg}deg); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));">
-                <polygon points="10,1 2,19 10,14 18,19" fill="${color}" stroke="#1e272c" stroke-width="1.5" />
-            </svg>`;
-            return L.divIcon({
-                className: 'plane-marker-icon',
-                html: svg,
+            const html = `
+            <div class="icon-wrapper" style="transform: rotate(${{deg}}deg);">
+                <svg width="20" height="20" viewBox="0 0 20 20">
+                    <polygon points="10,1 2,19 10,14 18,19" fill="${{color}}" stroke="#1e272c" stroke-width="1.5" />
+                </svg>
+            </div>`;
+            return L.divIcon({{
+                className: '',
+                html: html,
                 iconSize: [20, 20],
                 iconAnchor: [10, 10]
-            });
-        }
+            }});
+        }}
 
-        // 고도 변화율 판별
-        function checkStatus(hist) {
-            if (hist.length < 2) return { color: '#2ecc71', text: 'Level / Cruise' };
+        function checkStatus(hist) {{
+            if (hist.length < 2) return {{ color: '#2ecc71', text: 'Level / Cruise' }};
             const p0 = hist[Math.max(0, hist.length - 4)];
             const p1 = hist[hist.length - 1];
             const dt = (p1.time - p0.time) / 1000;
-            if (dt <= 0) return { color: '#2ecc71', text: 'Level / Cruise' };
-
+            if (dt <= 0) return {{ color: '#2ecc71', text: 'Level / Cruise' }};
             const vsFpm = ((p1.alt - p0.alt) / dt) * 60;
-            if (vsFpm > 150) return { color: '#f1c40f', text: `Climbing (+${Math.round(vsFpm)} fpm)` };
-            if (vsFpm < -150) return { color: '#3498db', text: `Descending (${Math.round(vsFpm)} fpm)` };
-            return { color: '#2ecc71', text: 'Level / Cruise' };
-        }
+            if (vsFpm > 150) return {{ color: '#f1c40f', text: `Climb (+${{Math.round(vsFpm)}})` }};
+            if (vsFpm < -150) return {{ color: '#3498db', text: `Desc (${{Math.round(vsFpm)}})` }};
+            return {{ color: '#2ecc71', text: 'Level / Cruise' }};
+        }}
 
-        // 데이터 비동기 수신 (CORS 차단 방지)
-        async function fetchFlightData() {
-            const radiusNm = 54; // 100km
-            const targetUrl = `https://api.adsb.lol/v2/point/${homeLat.toFixed(4)}/${homeLon.toFixed(4)}/${radiusNm}`;
+        // 안전한 Fetch 함수 (CORS 차단 시 다중 프록시 우회)
+        async function fetchFlightData() {{
+            const radiusNm = 54;
+            const lat = homeLat.toFixed(4);
+            const lon = homeLon.toFixed(4);
             
+            // 1. 기본 API, 2. CORS 프록시 우회 1, 3. CORS 프록시 우회 2
+            const endpoints = [
+                `https://api.adsb.lol/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`,
+                `https://api.allorigins.win/raw?url=` + encodeURIComponent(`https://api.adsb.lol/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`),
+                `https://api.allorigins.win/raw?url=` + encodeURIComponent(`https://api.airplanes.live/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`)
+            ];
+
             let data = null;
-            // 1차: 직접 fetch 시도
-            try {
-                const res = await fetch(targetUrl, { mode: 'cors' });
-                if (res.ok) data = await res.json();
-            } catch (e) {
-                // 2차: iframe CORS 차단 시 공용 프록시 폴백
-                try {
-                    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-                    const resProxy = await fetch(proxyUrl);
-                    if (resProxy.ok) data = await resProxy.json();
-                } catch (err) {}
-            }
+            let success = false;
+            document.getElementById('tel-count').innerText = "Fetching...";
+            document.getElementById('tel-count').style.color = "#f39c12";
 
-            if (!data || !data.ac) return;
+            for (let url of endpoints) {{
+                try {{
+                    const res = await fetch(url, {{ cache: 'no-store' }});
+                    if (res.ok) {{
+                        const resData = await res.json();
+                        if (resData && resData.ac !== undefined) {{
+                            data = resData;
+                            success = true;
+                            break; // 성공 시 루프 중단
+                        }}
+                    }}
+                }} catch (e) {{
+                    console.log("Fetch failed for endpoint:", url);
+                }}
+            }}
 
-            const planes = data.ac;
+            // 모든 API 호출 실패 시
+            if (!success) {{
+                document.getElementById('tel-count').innerText = "API Blocked/Error";
+                document.getElementById('tel-count').style.color = "#e74c3c";
+                return;
+            }}
+
+            const planes = data.ac || [];
+            
+            // 0대인 경우 명확히 표시
+            if (planes.length === 0) {{
+                document.getElementById('tel-count').innerText = "0 planes (No traffic)";
+                document.getElementById('tel-count').style.color = "#7f8c8d";
+            }} else {{
+                document.getElementById('tel-count').innerText = `${{planes.length}} planes`;
+                document.getElementById('tel-count').style.color = "#2ecc71";
+            }}
+
             const now = Date.now();
             const currentIcaos = new Set();
-            document.getElementById('tel-count').innerText = planes.length;
 
-            planes.forEach(ac => {
+            planes.forEach(ac => {{
                 const icao = ac.hex ? ac.hex.trim().toUpperCase() : null;
                 const callsign = ac.flight ? ac.flight.trim() : null;
                 if (!icao || ac.lat == null || ac.lon == null || !callsign) return;
@@ -180,13 +248,20 @@ radar_standalone_html = """
                 const heading = ac.track || 0;
                 const type = ac.t || "Unknown";
 
-                // 최초 감지 시 30초 이전 가상 꼬리선 생성
-                if (!flightHistory[icao]) {
+                // 항공사 이름 매칭
+                let airlineName = "Unknown Airline";
+                if (callsign.length >= 3) {{
+                    const prefix = callsign.substring(0, 3).toUpperCase();
+                    if (airlinesDB[prefix]) airlineName = airlinesDB[prefix];
+                }}
+
+                if (!flightHistory[icao]) {{
                     flightHistory[icao] = [];
-                    if (alt > 0 && spd > 100) {
+                    // 30초 이전 과거 항적 보간
+                    if (alt > 0 && spd > 100) {{
                         const rad = heading * Math.PI / 180;
                         const backRad = (rad + Math.PI) % (2 * Math.PI);
-                        [30, 15].forEach(pastSec => {
+                        [30, 15].forEach(pastSec => {{
                             const distKm = (spd * pastSec / 3600.0) * 1.852;
                             const d = distKm / 6371.0;
                             const pLat = Math.asin(Math.sin(ac.lat * Math.PI / 180) * Math.cos(d) +
@@ -195,101 +270,105 @@ radar_standalone_html = """
                                 Math.sin(backRad) * Math.sin(d) * Math.cos(ac.lat * Math.PI / 180),
                                 Math.cos(d) - Math.sin(ac.lat * Math.PI / 180) * Math.sin(pLat)
                             );
-                            flightHistory[icao].push({
-                                lat: pLat * 180 / Math.PI,
-                                lon: pLon * 180 / Math.PI,
-                                alt: alt,
-                                time: now - (pastSec * 1000)
-                            });
-                        });
-                    }
-                }
+                            flightHistory[icao].push({{ lat: pLat * 180 / Math.PI, lon: pLon * 180 / Math.PI, alt: alt, time: now - (pastSec * 1000) }});
+                        }});
+                    }}
+                }}
 
-                flightHistory[icao].push({
+                flightHistory[icao].push({{
                     lat: ac.lat, lon: ac.lon, alt: alt, spd: spd,
-                    heading: heading, callsign: callsign, type: type, time: now
-                });
+                    heading: heading, callsign: callsign, type: type, airline: airlineName, time: now
+                }});
 
-                // 최근 15분(900초) 슬라이딩 윈도우
                 flightHistory[icao] = flightHistory[icao].filter(p => now - p.time <= 900000);
                 if (flightHistory[icao].length > 120) flightHistory[icao].shift();
 
                 const hist = flightHistory[icao];
                 const status = checkStatus(hist);
 
-                // 마커 객체가 이미 있으면 setLatLng으로 위치만 살짝 이동 (지도를 다시 안 그림)
                 const newIcon = getTriangleIcon(heading, status.color);
-                if (markers[icao]) {
+                if (markers[icao]) {{
                     markers[icao].setLatLng([ac.lat, ac.lon]);
                     markers[icao].setIcon(newIcon);
-                } else {
-                    const m = L.marker([ac.lat, ac.lon], { icon: newIcon }).addTo(map);
-                    m.bindTooltip(`${callsign} (${alt.toLocaleString()} ft)`, { direction: 'top' });
-                    m.on('click', () => {
+                }} else {{
+                    const m = L.marker([ac.lat, ac.lon], {{ icon: newIcon }}).addTo(map);
+                    m.bindTooltip(`${{callsign}} (${{alt.toLocaleString()}} ft)`, {{ direction: 'top' }});
+                    m.on('click', () => {{
                         selectedIcao = icao;
                         showTelemetry(hist[hist.length - 1], status.text);
-                    });
+                    }});
                     markers[icao] = m;
-                }
+                }}
 
-                // 꼬리선 갱신 (기존 Polyline의 좌표 배열만 교체)
                 const latlngs = hist.map(pt => [pt.lat, pt.lon]);
-                if (polylines[icao]) {
+                if (polylines[icao]) {{
                     polylines[icao].setLatLngs(latlngs);
-                    polylines[icao].setStyle({ color: status.color });
-                } else {
-                    polylines[icao] = L.polyline(latlngs, {
-                        color: status.color,
-                        weight: 2.5,
-                        opacity: 0.8
-                    }).addTo(map);
-                }
+                    polylines[icao].setStyle({{ color: status.color }});
+                }} else {{
+                    polylines[icao] = L.polyline(latlngs, {{ color: status.color, weight: 2.5, opacity: 0.8 }}).addTo(map);
+                }}
 
-                if (selectedIcao === icao) {
+                if (selectedIcao === icao) {{
                     showTelemetry(hist[hist.length - 1], status.text);
-                }
-            });
+                }}
+            }});
 
-            // 반경을 벗어난 기체만 선택 제거
-            Object.keys(markers).forEach(icao => {
-                if (!currentIcaos.has(icao)) {
+            // 범위 이탈 기체 제거
+            Object.keys(markers).forEach(icao => {{
+                if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
                     map.removeLayer(polylines[icao]);
                     delete markers[icao];
                     delete polylines[icao];
                     delete flightHistory[icao];
-                }
-            });
-        }
+                }}
+            }});
+        }}
 
-        function showTelemetry(latest, statusText) {
+        function showTelemetry(latest, statusText) {{
             document.getElementById('tel-callsign').innerText = latest.callsign;
-            document.getElementById('tel-alt').innerText = `${latest.alt.toLocaleString()} ft`;
-            document.getElementById('tel-spd').innerText = `${Math.round(latest.spd)} kts`;
+            document.getElementById('tel-airline').innerText = latest.airline;
             document.getElementById('tel-type').innerText = latest.type;
+            document.getElementById('tel-alt').innerText = `${{latest.alt.toLocaleString()}} ft`;
+            document.getElementById('tel-spd').innerText = `${{Math.round(latest.spd)}} kts`;
             document.getElementById('tel-status').innerText = statusText;
-        }
+        }}
 
-        // 지도 더블클릭/더블탭 시 홈포인트 이동 (깜빡임 없이 레이더 원만 슥 이동)
-        map.on('dblclick', function(e) {
-            homeLat = e.latlng.lat;
-            homeLon = e.latlng.lng;
+        // 더블클릭 및 모바일 더블탭 홈포인트 이동
+        function relocateHomePoint(newLat, newLon) {{
+            homeLat = newLat;
+            homeLon = newLon;
+            
             homeMarker.setLatLng([homeLat, homeLon]);
             radarCircle.setLatLng([homeLat, homeLon]);
+            map.panTo([homeLat, homeLon]);
 
-            // 새 구역 탐색을 위해 마커 정리 후 즉시 호출
             Object.values(markers).forEach(m => map.removeLayer(m));
             Object.values(polylines).forEach(p => map.removeLayer(p));
-            markers = {};
-            polylines = {};
-            flightHistory = {};
+            markers = {{}};
+            polylines = {{}};
+            flightHistory = {{}};
             selectedIcao = null;
             document.getElementById('tel-callsign').innerText = 'Scanning new area...';
-
+            
             fetchFlightData();
-        });
+        }}
 
-        // 8초 타이머 비동기 반복 (브라우저가 지도를 절대 새로고침하지 않음)
+        map.on('dblclick', function(e) {{
+            relocateHomePoint(e.latlng.lat, e.latlng.lng);
+        }});
+
+        let lastTouchTime = 0;
+        map.on('click', function(e) {{
+            const currentTime = new Date().getTime();
+            const tapInterval = currentTime - lastTouchTime;
+            if (tapInterval < 300 && tapInterval > 0) {{
+                relocateHomePoint(e.latlng.lat, e.latlng.lng);
+            }}
+            lastTouchTime = currentTime;
+        }});
+
+        // 초기 시작 및 8초 반복
         fetchFlightData();
         setInterval(fetchFlightData, 8000);
     </script>
@@ -297,4 +376,4 @@ radar_standalone_html = """
 </html>
 """
 
-components.html(radar_standalone_html, height=720, scrolling=False)
+components.html(radar_html, height=760, scrolling=False)

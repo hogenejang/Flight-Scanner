@@ -93,7 +93,7 @@ def resolve_airline_name(callsign):
 
 # 2. 파이썬 백엔드 실시간 데이터 수집 (CORS 원천 배제)
 def fetch_flight_data(lat, lon):
-    radius_nm = 54  # 커버리지
+    radius_nm = 100  # 커버리지
     lat_diff = radius_nm / 60.0
     lon_diff = radius_nm / (60.0 * math.cos(math.radians(lat)))
     

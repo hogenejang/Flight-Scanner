@@ -23,7 +23,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 1. IATA(2자리) & ICAO(3자리) 통합 항공사 데이터베이스
+# 1. 항공사 데이터베이스 (IATA/ICAO 듀얼 매핑)
 DEFAULT_AIRLINES = {
     "KE": "대한항공 (Korean Air)", "KAL": "대한항공 (Korean Air)",
     "OZ": "아시아나항공 (Asiana Airlines)", "AAR": "아시아나항공 (Asiana Airlines)",
@@ -198,7 +198,7 @@ with st.sidebar:
 
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
-# 4. 지도 프레임 렌더링 (인천/김포/제주 활주로, 유도로 및 SID/STAR 픽스 포함)
+# 4. 지도 프레임 렌더링
 radar_base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -247,34 +247,19 @@ radar_base_html = f"""
         .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 1px; }}
         .card-value {{ font-size: 13px; font-weight: 800; color: #2d3748; white-space: nowrap; }}
 
-        /* 활주로 및 유도로 스타일 */
-        .runway-label {{
-            background: #1a202c !important; color: #ffffff !important;
-            border: 1px solid #4a5568 !important; border-radius: 3px !important;
-            font-size: 10px !important; font-weight: 900 !important;
-            padding: 1px 4px !important; box-shadow: 0 2px 4px rgba(0,0,0,0.4) !important;
+        /* 심플하고 은은한 Fix 전용 스타일 (배경 박스 제거) */
+        .fix-dot {{
+            width: 5px; height: 5px; background: #718096; border-radius: 50%;
+            border: 1px solid #ffffff; box-shadow: 0 0 2px rgba(0,0,0,0.5);
         }}
-        .runway-label:before {{ display: none !important; }}
-        .taxiway-label {{
-            background: #d69e2e !important; color: #1a202c !important;
-            border: 1px solid #744210 !important; border-radius: 3px !important;
-            font-size: 9px !important; font-weight: 800 !important;
-            padding: 0px 3px !important;
+        .fix-dot-iaf {{ background: #3182ce; }}
+        .fix-dot-faf {{ background: #e53e3e; }}
+        
+        .fix-text-tag {{
+            font-size: 9px !important; font-weight: 700 !important; color: #4a5568 !important;
+            text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+            white-space: nowrap; pointer-events: none; opacity: 0.85;
         }}
-        .taxiway-label:before {{ display: none !important; }}
-
-        /* SID / STAR 웨이포인트(Fix) 마젠타 심볼 및 라벨 */
-        .fix-icon {{
-            width: 8px; height: 8px; background: #d53f8c; border: 1.5px solid #ffffff;
-            transform: rotate(45deg); box-shadow: 0 0 4px rgba(213,63,140,0.8);
-        }}
-        .fix-label {{
-            background: rgba(26, 32, 44, 0.85) !important; color: #f687b3 !important;
-            border: 1px solid #d53f8c !important; border-radius: 4px !important;
-            font-size: 10px !important; font-weight: 900 !important; padding: 1px 5px !important;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3) !important; pointer-events: none !important;
-        }}
-        .fix-label:before {{ display: none !important; }}
     </style>
 </head>
 <body>
@@ -323,122 +308,73 @@ radar_base_html = f"""
         }}).addTo(map).bindTooltip("Home Point (100km)");
 
         // -------------------------------------------------------------
-        // 공항 시설(활주로/유도로) & SID/STAR 주요 Fix 오버레이 레이어
+        // 심플 Fix 레이어 (SID/STAR + IAF, IF, FAF 계기접근 픽스)
         // -------------------------------------------------------------
-        const navLayer = L.layerGroup().addTo(map);
+        const fixLayer = L.layerGroup().addTo(map);
 
-        // 1. 공항 물리적 활주로 및 유도로 데이터 (인천, 김포, 제주)
-        const airportsData = [
-            {{
-                name: "RKSI",
-                runways: [
-                    {{ id: "15R/33L", start: [37.4812, 126.4308], end: [37.4526, 126.4525], ends: [{{ label: "15R", pos: [37.4820, 126.4300] }}, {{ label: "33L", pos: [37.4518, 126.4533] }}] }},
-                    {{ id: "15L/33R", start: [37.4838, 126.4361], end: [37.4552, 126.4578], ends: [{{ label: "15L", pos: [37.4846, 126.4353] }}, {{ label: "33R", pos: [37.4544, 126.4586] }}] }},
-                    {{ id: "16R/34L", start: [37.4800, 126.4172], end: [37.4495, 126.4398], ends: [{{ label: "16R", pos: [37.4808, 126.4164] }}, {{ label: "34L", pos: [37.4487, 126.4406] }}] }},
-                    {{ id: "16L/34R", start: [37.4785, 126.4124], end: [37.4499, 126.4341], ends: [{{ label: "16L", pos: [37.4793, 126.4116] }}, {{ label: "34R", pos: [37.4491, 126.4349] }}] }}
-                ],
-                taxipaths: [
-                    {{ name: "TWY A", path: [[37.4825, 126.4332], [37.4539, 126.4549]], labelPos: [37.4682, 126.4440] }},
-                    {{ name: "TWY B", path: [[37.4851, 126.4385], [37.4565, 126.4602]], labelPos: [37.4708, 126.4493] }},
-                    {{ name: "TWY M", path: [[37.4812, 126.4195], [37.4507, 126.4421]], labelPos: [37.4659, 126.4308] }},
-                    {{ name: "TWY N", path: [[37.4772, 126.4101], [37.4486, 126.4318]], labelPos: [37.4629, 126.4209] }}
-                ]
-            }},
-            {{
-                name: "RKSS",
-                runways: [
-                    {{ id: "14R/32L", start: [37.5682, 126.7820], end: [37.5458, 126.8045], ends: [{{ label: "14R", pos: [37.5690, 126.7812] }}, {{ label: "32L", pos: [37.5450, 126.8053] }}] }},
-                    {{ id: "14L/32R", start: [37.5714, 126.7865], end: [37.5463, 126.8117], ends: [{{ label: "14L", pos: [37.5722, 126.7857] }}, {{ label: "32R", pos: [37.5455, 126.8125] }}] }}
-                ],
-                taxipaths: [
-                    {{ name: "TWY P", path: [[37.5698, 126.7842], [37.5460, 126.8081]], labelPos: [37.5579, 126.7961] }},
-                    {{ name: "TWY E", path: [[37.5668, 126.7802], [37.5444, 126.8027]], labelPos: [37.5556, 126.7914] }}
-                ]
-            }},
-            {{
-                name: "RKPC",
-                runways: [
-                    // 활주로 07/25 (3,180m - 주활주로)
-                    {{ id: "07/25", start: [33.5065, 126.4764], end: [33.5159, 126.5097], ends: [{{ label: "07", pos: [33.5058, 126.4740] }}, {{ label: "25", pos: [33.5165, 126.5120] }}] }},
-                    // 활주로 13/31 (1,900m - 보조교차)
-                    {{ id: "13/31", start: [33.5186, 126.4862], end: [33.5042, 126.4988], ends: [{{ label: "13", pos: [33.5195, 126.4850] }}, {{ label: "31", pos: [33.5035, 126.4998] }}] }}
-                ],
-                taxipaths: [
-                    {{ name: "TWY P", path: [[33.5085, 126.4780], [33.5175, 126.5100]], labelPos: [33.5130, 126.4940] }}
-                ]
-            }}
+        const navFixes = [
+            // [인천 RKSI]
+            {{ name: "BOPTA", pos: [37.0733, 126.2417], cat: "SID", desc: "인천 표준출발 남서분기" }},
+            {{ name: "NOUTE", pos: [37.2167, 125.8667], cat: "SID", desc: "인천 서해 출역점" }},
+            {{ name: "EGOBA", pos: [37.6667, 126.8833], cat: "IAF/SID", desc: "인천 북동 IAF / SID 전이" }},
+            {{ name: "GUKDO", pos: [36.9833, 126.6500], cat: "IAF/STAR", desc: "인천 남부 주진입 IAF" }},
+            {{ name: "KARAS", pos: [37.1500, 126.0833], cat: "STAR", desc: "인천 남서 접근점" }},
+            {{ name: "REKTO", pos: [37.2667, 126.1500], cat: "IAF", desc: "인천 RWY 33/34 진입 IAF" }},
+            {{ name: "OSPUR", pos: [37.6833, 126.2667], cat: "IAF", desc: "인천 RWY 15/16 진입 IAF" }},
+            {{ name: "DANAN", pos: [37.6017, 126.3350], cat: "IF", desc: "인천 RWY 15L/R 중간접근점" }},
+            {{ name: "SI801", pos: [37.3317, 126.5417], cat: "IF", desc: "인천 RWY 33L/R 중간접근점" }},
+            {{ name: "KASOM", pos: [37.5450, 126.3817], cat: "FAF", desc: "인천 RWY 15R 최종접근점 (FAF)" }},
+            {{ name: "ENPIL", pos: [37.3883, 126.4983], cat: "FAF", desc: "인천 RWY 33L 최종접근점 (FAF)" }},
+
+            // [김포 RKSS]
+            {{ name: "SEL", pos: [37.4306, 126.9389], cat: "IAF/SID", desc: "안양 VOR (김포 남동 IAF/출발)" }},
+            {{ name: "SOTSU", pos: [37.3000, 126.9000], cat: "SID", desc: "김포 남행 회랑 픽스" }},
+            {{ name: "BULLS", pos: [37.4167, 127.1833], cat: "IAF", desc: "김포 남동 진입 IAF" }},
+            {{ name: "OLMEN", pos: [37.7833, 127.0500], cat: "STAR", desc: "김포 북동 접근 픽스" }},
+            {{ name: "YAGI", pos: [37.5833, 126.5500], cat: "IAF", desc: "김포 서부 진입 IAF" }},
+            {{ name: "SS801", pos: [37.4850, 126.8650], cat: "IF", desc: "김포 RWY 32 중간접근점" }},
+            {{ name: "SS701", pos: [37.6350, 126.7150], cat: "IF", desc: "김포 RWY 14 중간접근점" }},
+            {{ name: "KAE", pos: [37.5583, 126.7906], cat: "FAF", desc: "김포 VOR / RWY 32 FAF" }},
+            {{ name: "METRO", pos: [37.6050, 126.7450], cat: "FAF", desc: "김포 RWY 14L 최종접근점 (FAF)" }},
+
+            // [제주 RKPC]
+            {{ name: "TAMNA", pos: [33.6833, 126.3500], cat: "IAF/SID", desc: "제주 북서 진입 IAF / SID" }},
+            {{ name: "DOTOL", pos: [33.2833, 126.2167], cat: "IAF/SID", desc: "제주 남서 진입 IAF / SID" }},
+            {{ name: "SOSDO", pos: [33.8000, 126.6333], cat: "IAF/STAR", desc: "내륙-제주 북부 주진입 IAF" }},
+            {{ name: "SARAS", pos: [33.4500, 126.8500], cat: "IAF", desc: "제주 동부 진입 IAF" }},
+            {{ name: "PC801", pos: [33.4750, 126.3667], cat: "IF", desc: "제주 RWY 07 중간접근점" }},
+            {{ name: "PC901", pos: [33.5450, 126.6200], cat: "IF", desc: "제주 RWY 25 중간접근점" }},
+            {{ name: "PABSO", pos: [33.4933, 126.4300], cat: "FAF", desc: "제주 RWY 07 최종접근점 (FAF)" }},
+            {{ name: "LAVAR", pos: [33.5283, 126.5567], cat: "FAF", desc: "제주 RWY 25 최종접근점 (FAF)" }}
         ];
 
-        // 활주로/유도로 렌더링
-        airportsData.forEach(apt => {{
-            apt.runways.forEach(rwy => {{
-                L.polyline([rwy.start, rwy.end], {{ color: '#2d3748', weight: 6, opacity: 0.95 }}).addTo(navLayer);
-                L.polyline([rwy.start, rwy.end], {{ color: '#ffffff', weight: 1.5, dashArray: '8, 6', opacity: 0.95 }}).addTo(navLayer);
-                rwy.ends.forEach(endObj => {{
-                    L.marker(endObj.pos, {{
-                        icon: L.divIcon({{ className: 'runway-label', html: endObj.label, iconSize: [28, 16], iconAnchor: [14, 8] }}),
-                        interactive: false
-                    }}).addTo(navLayer);
-                }});
-            }});
-            apt.taxipaths.forEach(twy => {{
-                L.polyline(twy.path, {{ color: '#718096', weight: 3, opacity: 0.8 }}).addTo(navLayer);
-                L.polyline(twy.path, {{ color: '#ecc94b', weight: 1, opacity: 0.9 }}).addTo(navLayer);
-                L.marker(twy.labelPos, {{
-                    icon: L.divIcon({{ className: 'taxiway-label', html: twy.name, iconSize: [40, 14], iconAnchor: [20, 7] }}),
-                    interactive: false
-                }}).addTo(navLayer);
-            }});
-        }});
+        // 심플 마커 및 텍스트 렌더링
+        navFixes.forEach(f => {{
+            let dotClass = 'fix-dot';
+            if (f.cat.includes('IAF')) dotClass += ' fix-dot-iaf';
+            if (f.cat.includes('FAF')) dotClass += ' fix-dot-faf';
 
-        // 2. 인천, 김포, 제주 주요 SID / STAR 핵심 Fix (AIP 실측 좌표)
-        const procedureFixes = [
-            // [인천 RKSI SID/STAR]
-            {{ name: "BOPTA", pos: [37.0733, 126.2417], type: "SID", note: "인천 남서향 출발 분기점" }},
-            {{ name: "NOUTE", pos: [37.2167, 125.8667], type: "SID", note: "인천 서해 출역점" }},
-            {{ name: "EGOBA", pos: [37.6667, 126.8833], type: "SID", note: "인천 동북향 전이점" }},
-            {{ name: "GUKDO", pos: [36.9833, 126.6500], type: "STAR", note: "인천 남부 진입 주력 픽스" }},
-            {{ name: "KARAS", pos: [37.1500, 126.0833], type: "STAR", note: "인천 남서부 도서 진입점" }},
-            {{ name: "RENOP", pos: [37.7500, 126.0500], type: "STAR", note: "인천 서해 북부 진입점" }},
-
-            // [김포 RKSS SID/STAR]
-            {{ name: "SEL", pos: [37.4306, 126.9389], type: "SID", note: "안양 VOR/DME (김포 표준출발 핵심)" }},
-            {{ name: "SOTSU", pos: [37.3000, 126.9000], type: "SID", note: "김포 남행 회랑 픽스" }},
-            {{ name: "BULLS", pos: [37.4167, 127.1833], type: "STAR", note: "김포 남동축 진입 픽스" }},
-            {{ name: "OLMEN", pos: [37.7833, 127.0500], type: "STAR", note: "김포 북동축 진입 픽스" }},
-            {{ name: "YAGI", pos: [37.5833, 126.5500], type: "STAR", note: "김포 서부 접근 분기점" }},
-
-            // [제주 RKPC SID/STAR]
-            {{ name: "TAMNA", pos: [33.6833, 126.3500], type: "SID", note: "제주 북서 표준출발점" }},
-            {{ name: "DOTOL", pos: [33.2833, 126.2167], type: "SID", note: "제주 남서향 출발점" }},
-            {{ name: "SOSDO", pos: [33.8000, 126.6333], type: "STAR", note: "내륙-제주 북부 진입 주력 픽스" }},
-            {{ name: "HAE", pos: [34.5833, 126.5833], type: "STAR", note: "해남 VOR (제주 관할 북측 경계)" }},
-            {{ name: "SARAS", pos: [33.4500, 126.8500], type: "STAR", note: "제주 동부 진입 픽스" }}
-        ];
-
-        // SID/STAR Fix 오버레이 렌더링
-        procedureFixes.forEach(fix => {{
-            // 마젠타 다이아몬드 아이콘
-            L.marker(fix.pos, {{
+            // 마우스 호버 시 상세 정보 표시
+            const marker = L.marker(f.pos, {{
                 icon: L.divIcon({{
-                    className: 'fix-icon-wrapper',
-                    html: '<div class="fix-icon"></div>',
-                    iconSize: [8, 8],
-                    iconAnchor: [4, 4]
-                }}),
-                interactive: true
-            }}).addTo(navLayer).bindTooltip(`<b>${{fix.name}}</b> [${{fix.type}}]<br>${{fix.note}}`, {{ direction: 'top' }});
+                    className: '',
+                    html: `<div class="${{dotClass}}"></div>`,
+                    iconSize: [6, 6],
+                    iconAnchor: [3, 3]
+                }})
+            }}).addTo(fixLayer);
+            marker.bindTooltip(`<b>${{f.name}}</b> [${{f.cat}}]<br>${{f.desc}}`, {{ direction: 'top', opacity: 0.9 }});
 
-            // 항행 식별 부호 텍스트 태그
-            L.marker(fix.pos, {{
+            // 심플 텍스트 태그
+            L.marker(f.pos, {{
                 icon: L.divIcon({{
-                    className: 'fix-label',
-                    html: `▲ ${{fix.name}}`,
-                    iconSize: [50, 15],
-                    iconAnchor: [25, -6]
+                    className: 'fix-text-tag',
+                    html: f.name,
+                    iconSize: [40, 12],
+                    iconAnchor: [-5, 6]
                 }}),
                 interactive: false
-            }}).addTo(navLayer);
+            }}).addTo(fixLayer);
         }});
 
         // -------------------------------------------------------------

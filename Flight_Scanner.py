@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 모바일 화면 최적화
+# 화면 최적화 (여백 제거)
 st.markdown("""
 <style>
     .block-container { padding: 0 !important; max-width: 100% !important; overflow: hidden; }
@@ -63,27 +63,8 @@ with st.sidebar:
     st.header("⚙️ Radar Settings")
     st.info("지도 아무 곳이나 더블클릭하면 150km 스캔 위치가 즉시 이동합니다.")
     
-    st.markdown("### 📡 Data Source")
-    source_option = st.selectbox(
-        "항적 정보 소스 선택",
-        options=[
-            "Auto (하이브리드 자동 우회)", 
-            "Airplanes.live (오픈망)", 
-            "OpenSky Network (관제망)", 
-            "Flightradar24 (상용망)"
-        ]
-    )
-    
-    source_map = {
-        "Auto (하이브리드 자동 우회)": "auto",
-        "Airplanes.live (오픈망)": "airplanes",
-        "OpenSky Network (관제망)": "opensky",
-        "Flightradar24 (상용망)": "fr24"
-    }
-    selected_source_js = source_map[source_option]
-    
-    st.markdown("---")
     st.markdown("### 📍 Location Presets")
+    st.write("해외 트래픽 테스트 이동")
     if st.button("🇰🇷 인천 국제공항", use_container_width=True):
         st.session_state.home_coords = [37.4600, 126.4400]
         st.rerun()
@@ -97,7 +78,7 @@ with st.sidebar:
 init_lat = st.session_state.home_coords[0]
 init_lon = st.session_state.home_coords[1]
 
-# HTML / JS 엔진 (f-string 이스케이프 수정 완료)
+# HTML 내부에 데이터 소스 선택(Select) UI 직접 추가
 radar_html = f"""
 <!DOCTYPE html>
 <html>
@@ -112,12 +93,15 @@ radar_html = f"""
         
         .top-hud {{
             position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000;
-            display: flex; justify-content: space-between; align-items: center; pointer-events: none;
+            display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; flex-wrap: wrap; gap: 10px;
         }}
         .hud-box {{
             background: rgba(255, 255, 255, 0.95); padding: 8px 14px; border-radius: 20px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.18); font-size: 13px; font-weight: bold; color: #2c3e50;
-            pointer-events: auto; display: flex; align-items: center; gap: 8px;
+            pointer-events: auto; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(0,0,0,0.1);
+        }}
+        select.hud-box {{
+            cursor: pointer; outline: none; appearance: auto; -webkit-appearance: auto; padding-right: 10px;
         }}
         
         .bottom-hud {{
@@ -140,13 +124,26 @@ radar_html = f"""
             width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
             filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.6)); transition: transform 0.5s ease-out;
         }}
+
+        @media (max-width: 650px) {{
+            .top-hud {{ flex-direction: column; align-items: flex-start; }}
+        }}
     </style>
 </head>
 <body>
     <div id="map"></div>
 
     <div class="top-hud">
-        <div class="hud-box" id="status-box">📡 소스 연결 대기 중...</div>
+        <div class="hud-box" id="status-box">📡 준비 중...</div>
+        
+        <!-- 화면 위에 직접 떠 있는 소스 선택 메뉴 -->
+        <select id="source-select" class="hud-box">
+            <option value="auto">🌐 Auto (자동 하이브리드)</option>
+            <option value="airplanes">📡 Airplanes.live (오픈망)</option>
+            <option value="opensky">🏛️ OpenSky (관제망)</option>
+            <option value="fr24">✈️ FR24 (상용망)</option>
+        </select>
+        
         <div class="hud-box">
             <span style="color:#2ecc71;">● 수평</span>
             <span style="color:#f1c40f;">● 상승</span>
@@ -159,7 +156,7 @@ radar_html = f"""
             <span class="plane-callsign" id="p-callsign">탐색 중...</span>
             <span class="plane-type" id="p-type">-</span>
         </div>
-        <div class="plane-airline" id="p-airline">데이터 수집망을 검색하고 있습니다.</div>
+        <div class="plane-airline" id="p-airline">선택된 소스에서 데이터를 가져옵니다.</div>
         <div class="grid-info">
             <div class="grid-item">
                 <span class="grid-lbl">Altitude</span>
@@ -180,7 +177,17 @@ radar_html = f"""
         const airlinesDB = {airlines_json_str};
         let homeLat = {init_lat};
         let homeLon = {init_lon};
-        const dataSourceMode = "{selected_source_js}";
+        let dataSourceMode = "auto"; 
+
+        // 사용자가 화면 상단의 소스 선택을 바꿀 때 이벤트
+        document.getElementById('source-select').addEventListener('change', function(e) {{
+            dataSourceMode = e.target.value;
+            Object.values(markers).forEach(m => map.removeLayer(m));
+            Object.values(polylines).forEach(p => map.removeLayer(p));
+            markers = {{}}; polylines = {{}}; flightHistory = {{}}; selectedIcao = null;
+            document.getElementById('status-box').innerText = "📡 소스 변경 적용 중...";
+            fetchFlightData();
+        }});
 
         const map = L.map('map', {{ center: [homeLat, homeLon], zoom: 9, zoomControl: false, doubleClickZoom: false }});
         L.control.zoom({{ position: 'bottomright' }}).addTo(map);
@@ -256,7 +263,7 @@ radar_html = f"""
         }}
 
         async function fetchFlightData() {{
-            document.getElementById('status-box').innerText = "📡 스캔 중...";
+            document.getElementById('status-box').innerText = "📡 데이터 요청 중...";
             document.getElementById('status-box').style.color = "#f39c12";
 
             let planes = [];
@@ -290,10 +297,9 @@ radar_html = f"""
                 }} catch (e) {{}}
             }}
 
-            // 수정: f-string 문법 충돌을 방지하기 위해 텍스트 연결 연산자(+) 사용
             if (planes.length === 0) {{
-                let netName = (dataSourceMode === "auto") ? "하이브리드" : dataSourceMode;
-                document.getElementById('status-box').innerText = "📡 0대 (트래픽 없음 - " + netName + ")";
+                let netName = (dataSourceMode === "auto") ? "자동탐색" : dataSourceMode.toUpperCase();
+                document.getElementById('status-box').innerText = "📡 0대 (결과 없음 - " + netName + ")";
                 document.getElementById('status-box').style.color = "#7f8c8d";
                 return;
             }}

@@ -59,7 +59,6 @@ def get_airlines_json():
 
 airlines_json_str = get_airlines_json()
 
-# 세션 상태 초기화
 if "home_coords" not in st.session_state:
     st.session_state.home_coords = [37.5665, 126.9780] 
 
@@ -85,7 +84,7 @@ with st.sidebar:
 init_lat = st.session_state.home_coords[0]
 init_lon = st.session_state.home_coords[1]
 
-# 오버레이(Floating) UI가 적용된 무깜빡임 HTML 레이더
+# 오버레이 플로팅 UI 및 CORS 안전 레이더 엔진
 radar_html = f"""
 <!DOCTYPE html>
 <html>
@@ -97,51 +96,49 @@ radar_html = f"""
     <style>
         body, html {{ margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
         
-        /* 지도 전체 화면 채우기 */
-        #map {{ position: absolute; top: 0; left: 0; height: 100%; width: 100%; z-index: 1; background: #e5e9ec; }}
+        #map {{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 1; background: #e5e9ec; }}
         
-        /* 상단 상태바 오버레이 */
+        /* 상단 플로팅 상태바 */
         .top-hud {{
-            position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
-            display: flex; justify-content: space-between; align-items: flex-start;
-            pointer-events: none; /* 클릭 통과 */
+            position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000;
+            display: flex; justify-content: space-between; align-items: center;
+            pointer-events: none;
         }}
         .hud-box {{
-            background: rgba(255, 255, 255, 0.95); padding: 8px 12px; border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2); font-size: 13px; font-weight: bold; color: #2c3e50;
+            background: rgba(255, 255, 255, 0.95); padding: 8px 14px; border-radius: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.18); font-size: 12px; font-weight: bold; color: #2c3e50;
             pointer-events: auto;
         }}
         
-        /* 하단 비행기 정보 패널 오버레이 (무조건 보이도록 플로팅 처리) */
+        /* 하단 비행기 정보 카드 (Floating Overlay) */
         .bottom-hud {{
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000;
-            width: 92%; max-width: 500px; background: white; border-radius: 15px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.25); padding: 18px; pointer-events: auto;
-            display: flex; flex-direction: column;
+            width: 90%; max-width: 480px; background: rgba(255, 255, 255, 0.96); border-radius: 18px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.22); padding: 14px 18px; pointer-events: auto;
+            display: flex; flex-direction: column; border: 1px solid rgba(0,0,0,0.06);
+            backdrop-filter: blur(8px);
         }}
-        .plane-title {{ font-size: 24px; font-weight: 900; color: #e74c3c; margin: 0; line-height: 1; }}
-        .plane-subtitle {{ font-size: 13px; color: #7f8c8d; margin-top: 5px; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .plane-header {{ display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }}
+        .plane-callsign {{ font-size: 22px; font-weight: 900; color: #e74c3c; line-height: 1; }}
+        .plane-type {{ font-size: 12px; font-weight: bold; color: #7f8c8d; background: #edf2f7; padding: 2px 6px; border-radius: 4px; }}
+        .plane-airline {{ font-size: 13px; color: #4a5568; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }}
         
-        .grid-info {{ display: flex; justify-content: space-between; text-align: center; border-top: 1px solid #f1f2f6; padding-top: 12px; }}
+        .grid-info {{ display: flex; justify-content: space-between; text-align: center; border-top: 1px solid #edf2f7; padding-top: 8px; }}
         .grid-item {{ display: flex; flex-direction: column; width: 33%; }}
-        .grid-val {{ font-size: 18px; font-weight: bold; color: #2c3e50; }}
-        .grid-lbl {{ font-size: 11px; color: #95a5a6; text-transform: uppercase; font-weight: bold; margin-bottom: 2px; }}
+        .grid-val {{ font-size: 17px; font-weight: 800; color: #2d3748; }}
+        .grid-lbl {{ font-size: 10px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }}
         
         .icon-wrapper {{
             width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-            filter: drop-shadow(0px 3px 3px rgba(0,0,0,0.5)); transition: transform 0.4s linear;
+            filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.5)); transition: transform 0.4s linear;
         }}
     </style>
 </head>
 <body>
-    <!-- 배경 지도 -->
     <div id="map"></div>
 
-    <!-- 상단 플로팅 UI -->
     <div class="top-hud">
-        <div class="hud-box" id="status-box">
-            📡 연결 중...
-        </div>
+        <div class="hud-box" id="status-box">📡 신호 수신 대기 중...</div>
         <div class="hud-box" style="display: flex; gap: 8px;">
             <span style="color:#2ecc71;">● 수평</span>
             <span style="color:#f1c40f;">● 상승</span>
@@ -149,10 +146,12 @@ radar_html = f"""
         </div>
     </div>
 
-    <!-- 하단 비행기 정보 플로팅 패널 -->
-    <div class="bottom-hud">
-        <div class="plane-title" id="p-callsign">지도를 클릭하세요</div>
-        <div class="plane-subtitle" id="p-airline">추적할 비행기 마커를 선택해주세요. (더블클릭 시 중심 이동)</div>
+    <div class="bottom-hud" id="telemetry-card">
+        <div class="plane-header">
+            <span class="plane-callsign" id="p-callsign">탐색 중...</span>
+            <span class="plane-type" id="p-type">-</span>
+        </div>
+        <div class="plane-airline" id="p-airline">반경 100km 이내 기체를 스캔하고 있습니다.</div>
         
         <div class="grid-info">
             <div class="grid-item">
@@ -164,27 +163,25 @@ radar_html = f"""
                 <span class="grid-val" id="p-spd">-</span>
             </div>
             <div class="grid-item">
-                <span class="grid-lbl">Status</span>
+                <span class="grid-lbl">Vertical</span>
                 <span class="grid-val" id="p-status" style="font-size:15px;">-</span>
             </div>
         </div>
     </div>
 
     <script>
-        // 전 세계 항공사 DB 파싱
         const airlinesDB = {airlines_json_str};
         
         let homeLat = {init_lat};
         let homeLon = {init_lon};
 
-        // 지도 생성 (더블클릭 줌 해제)
         const map = L.map('map', {{
             center: [homeLat, homeLon],
             zoom: 9,
             zoomControl: false,
             doubleClickZoom: false
         }});
-        L.control.zoom({{ position: 'bottomright' }}).addTo(map); // 줌 버튼 우측 하단으로 이동
+        L.control.zoom({{ position: 'bottomright' }}).addTo(map);
 
         L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
             maxZoom: 18,
@@ -235,34 +232,59 @@ radar_html = f"""
             return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        // 실시간 비동기 데이터 갱신
+        // CORS 완전 지원 엔드포인트 및 다중 폴백
         async function fetchFlightData() {{
-            const radiusNm = 54;
+            const radiusNm = 54; // 100km
             const lat = homeLat.toFixed(4);
             const lon = homeLon.toFixed(4);
-            const url = `https://api.adsb.lol/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`;
+            
+            const urls = [
+                `https://api.airplanes.live/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`,
+                `https://opendata.adsb.fi/api/v2/lat/${{lat}}/lon/${{lon}}/dist/${{radiusNm}}`,
+                `https://corsproxy.io/?url=` + encodeURIComponent(`https://api.airplanes.live/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`),
+                `https://api.allorigins.win/raw?url=` + encodeURIComponent(`https://api.airplanes.live/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`)
+            ];
 
             let data = null;
-            try {{
-                const res = await fetch(url);
-                if (res.ok) {{ data = await res.json(); }}
-            }} catch (e) {{
-                document.getElementById('status-box').innerText = "❌ 데이터 연결 실패";
+            for (let targetUrl of urls) {{
+                try {{
+                    const res = await fetch(targetUrl);
+                    if (res.ok) {{
+                        const json = await res.json();
+                        if (json && json.ac !== undefined) {{
+                            data = json;
+                            break;
+                        }}
+                    }}
+                }} catch (e) {{
+                    // 다음 URL 시도
+                }}
+            }}
+
+            if (!data || !data.ac) {{
+                document.getElementById('status-box').innerText = "❌ 데이터 연결 실패 (재시도 중)";
                 document.getElementById('status-box').style.color = "#e74c3c";
                 return;
             }}
 
-            if (!data || !data.ac) {{
-                document.getElementById('status-box').innerText = "📡 탐지된 비행기: 0대";
+            const planes = data.ac;
+            document.getElementById('status-box').innerText = `📡 탐지된 기체: ${{planes.length}}대`;
+            document.getElementById('status-box').style.color = planes.length > 0 ? "#2ecc71" : "#7f8c8d";
+
+            if (planes.length === 0) {{
+                document.getElementById('p-callsign').innerText = "기체 없음";
+                document.getElementById('p-airline').innerText = "반경 100km 내 비행 중인 항공기가 없습니다.";
+                document.getElementById('p-type').innerText = "-";
+                document.getElementById('p-alt').innerText = "-";
+                document.getElementById('p-spd').innerText = "-";
+                document.getElementById('p-status').innerText = "-";
                 return;
             }}
 
-            const planes = data.ac;
-            document.getElementById('status-box').innerText = `📡 탐지된 비행기: ${{planes.length}}대`;
-            document.getElementById('status-box').style.color = planes.length > 0 ? "#2ecc71" : "#7f8c8d";
-
             const now = Date.now();
             const currentIcaos = new Set();
+            let nearestIcao = null;
+            let minDistance = 999999;
 
             planes.forEach(ac => {{
                 const icao = ac.hex ? ac.hex.trim().toUpperCase() : null;
@@ -270,11 +292,20 @@ radar_html = f"""
                 if (!icao || ac.lat == null || ac.lon == null || !callsign) return;
 
                 currentIcaos.add(icao);
+                
+                // 중심점과의 거리 계산
+                const dist = Math.hypot(ac.lat - homeLat, ac.lon - homeLon);
+                if (dist < minDistance) {{
+                    minDistance = dist;
+                    nearestIcao = icao;
+                }}
+
                 const alt = (ac.alt_baro === "ground" || ac.alt_baro == null) ? 0 : ac.alt_baro;
                 const spd = ac.gs || 0;
                 const heading = ac.track || 0;
+                const typeCode = ac.t || "Unknown";
 
-                let airlineName = "Unknown / General Aviation";
+                let airlineName = "일반 / 개인 항공기";
                 if (callsign.length >= 3) {{
                     const prefix = callsign.substring(0, 3).toUpperCase();
                     if (airlinesDB[prefix]) airlineName = airlinesDB[prefix];
@@ -282,6 +313,7 @@ radar_html = f"""
 
                 if (!flightHistory[icao]) {{
                     flightHistory[icao] = [];
+                    // 30초 이전 과거 항적 보간
                     if (alt > 0 && spd > 100) {{
                         const rad = heading * Math.PI / 180;
                         const backRad = (rad + Math.PI) % (2 * Math.PI);
@@ -301,7 +333,7 @@ radar_html = f"""
 
                 flightHistory[icao].push({{
                     lat: ac.lat, lon: ac.lon, alt: alt, spd: spd,
-                    heading: heading, callsign: callsign, airline: airlineName, time: now
+                    heading: heading, callsign: callsign, airline: airlineName, type: typeCode, time: now
                 }});
 
                 flightHistory[icao] = flightHistory[icao].filter(p => now - p.time <= 900000);
@@ -331,13 +363,9 @@ radar_html = f"""
                 }} else {{
                     polylines[icao] = L.polyline(latlngs, {{ color: status.color, weight: 3, opacity: 0.7 }}).addTo(map);
                 }}
-
-                if (selectedIcao === icao) {{
-                    updatePanel(hist[hist.length - 1], status.text, status.color);
-                }}
             }});
 
-            // 화면에서 사라진 기체 지우기
+            // 범위 이탈 기체 제거
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -345,22 +373,33 @@ radar_html = f"""
                     delete markers[icao];
                     delete polylines[icao];
                     delete flightHistory[icao];
+                    if (selectedIcao === icao) selectedIcao = null;
                 }}
             }});
+
+            // 선택된 기체가 없으면 가장 가까운 비행기 자동 선택
+            if (!selectedIcao || !flightHistory[selectedIcao]) {{
+                selectedIcao = nearestIcao;
+            }}
+
+            if (selectedIcao && flightHistory[selectedIcao]) {{
+                const targetHist = flightHistory[selectedIcao];
+                const st = checkStatus(targetHist);
+                updatePanel(targetHist[targetHist.length - 1], st.text, st.color);
+            }}
         }}
 
-        // 하단 패널 업데이트 함수
         function updatePanel(latest, statusText, color) {{
             document.getElementById('p-callsign').innerText = latest.callsign;
             document.getElementById('p-callsign').style.color = color;
             document.getElementById('p-airline').innerText = latest.airline;
+            document.getElementById('p-type').innerText = latest.type;
             document.getElementById('p-alt').innerText = `${{latest.alt.toLocaleString()}} ft`;
             document.getElementById('p-spd').innerText = `${{Math.round(latest.spd)}} kts`;
             document.getElementById('p-status').innerText = statusText;
             document.getElementById('p-status').style.color = color;
         }}
 
-        // 홈포인트 더블클릭 변경 로직
         function relocateHomePoint(newLat, newLon) {{
             homeLat = newLat;
             homeLon = newLon;
@@ -373,19 +412,14 @@ radar_html = f"""
             Object.values(polylines).forEach(p => map.removeLayer(p));
             markers = {{}}; polylines = {{}}; flightHistory = {{}}; selectedIcao = null;
             
-            document.getElementById('p-callsign').innerText = '지도를 클릭하세요';
-            document.getElementById('p-callsign').style.color = '#e74c3c';
-            document.getElementById('p-airline').innerText = '새로운 지역을 스캔 중입니다...';
-            document.getElementById('p-alt').innerText = '-';
-            document.getElementById('p-spd').innerText = '-';
-            document.getElementById('p-status').innerText = '-';
+            document.getElementById('p-callsign').innerText = '스캔 중...';
+            document.getElementById('p-airline').innerText = '새 위치 주변을 탐색 중입니다.';
             
             fetchFlightData();
         }}
 
         map.on('dblclick', function(e) {{ relocateHomePoint(e.latlng.lat, e.latlng.lng); }});
         
-        // 모바일 더블탭 지원
         let lastTouchTime = 0;
         map.on('click', function(e) {{
             const currentTime = new Date().getTime();
@@ -395,7 +429,7 @@ radar_html = f"""
             lastTouchTime = currentTime;
         }});
 
-        // 프로그램 시작 및 5초 주기 반복
+        // 5초 주기 실시간 데이터 갱신
         fetchFlightData();
         setInterval(fetchFlightData, 5000);
     </script>

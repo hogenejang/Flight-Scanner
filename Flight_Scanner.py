@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 화면 최적화 (여백 제거)
+# 화면 최적화 (모바일/PC 스크롤바 방지 및 여백 제거)
 st.markdown("""
 <style>
     .block-container { padding: 0 !important; max-width: 100% !important; overflow: hidden; }
@@ -64,7 +64,7 @@ with st.sidebar:
     st.info("지도 아무 곳이나 더블클릭하면 150km 스캔 위치가 즉시 이동합니다.")
     
     st.markdown("### 📍 Location Presets")
-    st.write("해외 트래픽 테스트 이동")
+    st.write("한국 외 지역 테스트 이동")
     if st.button("🇰🇷 인천 국제공항", use_container_width=True):
         st.session_state.home_coords = [37.4600, 126.4400]
         st.rerun()
@@ -78,7 +78,7 @@ with st.sidebar:
 init_lat = st.session_state.home_coords[0]
 init_lon = st.session_state.home_coords[1]
 
-# HTML 내부에 데이터 소스 선택(Select) UI 직접 추가
+# 강력한 4중 우회 프록시 엔진 및 에러 로깅 UI 탑재
 radar_html = f"""
 <!DOCTYPE html>
 <html>
@@ -100,9 +100,6 @@ radar_html = f"""
             box-shadow: 0 4px 12px rgba(0,0,0,0.18); font-size: 13px; font-weight: bold; color: #2c3e50;
             pointer-events: auto; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(0,0,0,0.1);
         }}
-        select.hud-box {{
-            cursor: pointer; outline: none; appearance: auto; -webkit-appearance: auto; padding-right: 10px;
-        }}
         
         .bottom-hud {{
             position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%); z-index: 1000;
@@ -113,7 +110,7 @@ radar_html = f"""
         .plane-header {{ display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }}
         .plane-callsign {{ font-size: 24px; font-weight: 900; color: #e74c3c; line-height: 1; }}
         .plane-type {{ font-size: 13px; font-weight: bold; color: #7f8c8d; background: #edf2f7; padding: 3px 8px; border-radius: 4px; }}
-        .plane-airline {{ font-size: 14px; color: #4a5568; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }}
+        .plane-airline {{ font-size: 12px; color: #4a5568; margin-bottom: 12px; font-weight: 600; line-height: 1.4; }}
         
         .grid-info {{ display: flex; justify-content: space-between; text-align: center; border-top: 1px solid #edf2f7; padding-top: 10px; }}
         .grid-item {{ display: flex; flex-direction: column; width: 33%; }}
@@ -124,26 +121,13 @@ radar_html = f"""
             width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
             filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.6)); transition: transform 0.5s ease-out;
         }}
-
-        @media (max-width: 650px) {{
-            .top-hud {{ flex-direction: column; align-items: flex-start; }}
-        }}
     </style>
 </head>
 <body>
     <div id="map"></div>
 
     <div class="top-hud">
-        <div class="hud-box" id="status-box">📡 준비 중...</div>
-        
-        <!-- 화면 위에 직접 떠 있는 소스 선택 메뉴 -->
-        <select id="source-select" class="hud-box">
-            <option value="auto">🌐 Auto (자동 하이브리드)</option>
-            <option value="airplanes">📡 Airplanes.live (오픈망)</option>
-            <option value="opensky">🏛️ OpenSky (관제망)</option>
-            <option value="fr24">✈️ FR24 (상용망)</option>
-        </select>
-        
+        <div class="hud-box" id="status-box">📡 스캔 준비 중...</div>
         <div class="hud-box">
             <span style="color:#2ecc71;">● 수평</span>
             <span style="color:#f1c40f;">● 상승</span>
@@ -156,7 +140,8 @@ radar_html = f"""
             <span class="plane-callsign" id="p-callsign">탐색 중...</span>
             <span class="plane-type" id="p-type">-</span>
         </div>
-        <div class="plane-airline" id="p-airline">선택된 소스에서 데이터를 가져옵니다.</div>
+        <!-- 진단 및 정보 표시 겸용 텍스트 -->
+        <div class="plane-airline" id="p-airline" style="color:#3498db;">데이터 수집망 4곳 접속 시도 중...</div>
         <div class="grid-info">
             <div class="grid-item">
                 <span class="grid-lbl">Altitude</span>
@@ -177,17 +162,6 @@ radar_html = f"""
         const airlinesDB = {airlines_json_str};
         let homeLat = {init_lat};
         let homeLon = {init_lon};
-        let dataSourceMode = "auto"; 
-
-        // 사용자가 화면 상단의 소스 선택을 바꿀 때 이벤트
-        document.getElementById('source-select').addEventListener('change', function(e) {{
-            dataSourceMode = e.target.value;
-            Object.values(markers).forEach(m => map.removeLayer(m));
-            Object.values(polylines).forEach(p => map.removeLayer(p));
-            markers = {{}}; polylines = {{}}; flightHistory = {{}}; selectedIcao = null;
-            document.getElementById('status-box').innerText = "📡 소스 변경 적용 중...";
-            fetchFlightData();
-        }});
 
         const map = L.map('map', {{ center: [homeLat, homeLon], zoom: 9, zoomControl: false, doubleClickZoom: false }});
         L.control.zoom({{ position: 'bottomright' }}).addTo(map);
@@ -219,93 +193,94 @@ radar_html = f"""
             return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        async function fetchAirplanesLive(lat, lon) {{
-            const res = await fetch(`https://api.airplanes.live/v2/point/${{lat.toFixed(3)}}/${{lon.toFixed(3)}}/80`);
-            if (res.ok) {{
-                const json = await res.json();
-                if (json.ac) return json.ac;
-            }}
-            return [];
-        }}
-
-        async function fetchOpenSky(minLat, maxLat, minLon, maxLon) {{
-            const res = await fetch(`https://opensky-network.org/api/states/all?lamin=${{minLat}}&lomin=${{minLon}}&lamax=${{maxLat}}&lomax=${{maxLon}}`);
-            if (res.ok) {{
-                const json = await res.json();
-                if (json.states && json.states.length > 0) {{
-                    return json.states.map(p => ({{
-                        hex: p[0], flight: p[1] ? p[1].trim() : "", lon: p[5], lat: p[6],
-                        alt_baro: p[7] ? p[7] * 3.28084 : 0, gs: p[9] ? p[9] * 1.94384 : 0,
-                        track: p[10] || 0, t: "N/A"
-                    }}));
-                }}
-            }}
-            return [];
-        }}
-
-        async function fetchFlightRadar24(minLat, maxLat, minLon, maxLon) {{
-            const fr24Url = `https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=${{maxLat}},${{minLat}},${{minLon}},${{maxLon}}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1`;
-            const res = await fetch(`https://api.allorigins.win/raw?url=${{encodeURIComponent(fr24Url)}}&cb=${{Date.now()}}`);
-            if (res.ok) {{
-                const json = await res.json();
-                let arr = [];
-                for (let key in json) {{
-                    if (key === 'full_count' || key === 'version' || key === 'stats') continue;
-                    let p = json[key];
-                    arr.push({{
-                        hex: p[0], lat: p[1], lon: p[2], track: p[3], alt_baro: p[4],
-                        gs: p[5], t: p[8], flight: p[13] || p[16] || p[0]
-                    }});
-                }}
-                return arr;
-            }}
-            return [];
-        }}
-
+        // 4중 하이브리드 엔진 (자동 폴백)
         async function fetchFlightData() {{
-            document.getElementById('status-box').innerText = "📡 데이터 요청 중...";
+            document.getElementById('status-box').innerText = "📡 데이터 스캔 중...";
             document.getElementById('status-box').style.color = "#f39c12";
+            document.getElementById('p-airline').innerText = "데이터 수집망 4곳 통신 시도 중...";
+            document.getElementById('p-airline').style.color = "#3498db";
 
-            let planes = [];
-            let sourceNetwork = "";
+            const lat = homeLat.toFixed(3);
+            const lon = homeLon.toFixed(3);
+            const radiusNm = 80;
             
-            const radiusLat = 1.35; 
-            const radiusLon = 1.7;
+            const radiusLat = 1.35; const radiusLon = 1.7;
             const minLat = (homeLat - radiusLat).toFixed(3);
             const maxLat = (homeLat + radiusLat).toFixed(3);
             const minLon = (homeLon - radiusLon).toFixed(3);
             const maxLon = (homeLon + radiusLon).toFixed(3);
+            
+            const fr24Url = `https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=${{maxLat}},${{minLat}},${{minLon}},${{maxLon}}&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1`;
 
-            if (dataSourceMode === "auto" || dataSourceMode === "airplanes") {{
+            // 접속을 시도할 4개의 강력한 라우트 정의
+            const endpoints = [
+                {{ name: "ADSB.one", url: `https://api.adsb.one/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`, type: 'v2' }},
+                {{ name: "Airplanes.live", url: `https://api.airplanes.live/v2/point/${{lat}}/${{lon}}/${{radiusNm}}`, type: 'v2' }},
+                {{ name: "FR24(Proxy1)", url: `https://api.allorigins.win/get?url=${{encodeURIComponent(fr24Url)}}`, type: 'fr24_allorigins' }},
+                {{ name: "FR24(Proxy2)", url: `https://api.codetabs.com/v1/proxy?quest=${{encodeURIComponent(fr24Url)}}`, type: 'fr24_raw' }}
+            ];
+            
+            let planes = [];
+            let sourceNetwork = "";
+            let logMsg = "";
+            
+            for (let ep of endpoints) {{
                 try {{
-                    let result = await fetchAirplanesLive(homeLat, homeLon);
-                    if (result.length > 0) {{ planes = result; sourceNetwork = "Airplanes"; }}
-                }} catch (e) {{}}
+                    const res = await fetch(ep.url, {{ cache: 'no-store' }});
+                    if (!res.ok) {{
+                        logMsg += `[${{ep.name}} HTTP ${{res.status}}] `;
+                        continue;
+                    }}
+                    
+                    if (ep.type === 'v2') {{
+                        const json = await res.json();
+                        if (json && json.ac && json.ac.length > 0) {{
+                            planes = json.ac; sourceNetwork = ep.name; break;
+                        }} else {{ logMsg += `[${{ep.name}} 0대] `; }}
+                    }} 
+                    else if (ep.type === 'fr24_allorigins') {{
+                        const json = await res.json();
+                        if (json.contents) {{
+                            const frData = JSON.parse(json.contents);
+                            let arr = [];
+                            for (let key in frData) {{
+                                if (['full_count', 'version', 'stats'].includes(key)) continue;
+                                let p = frData[key];
+                                arr.push({{ hex: p[0], lat: p[1], lon: p[2], track: p[3], alt_baro: p[4], gs: p[5], t: p[8], flight: p[13] || p[16] || p[0] }});
+                            }}
+                            if (arr.length > 0) {{ planes = arr; sourceNetwork = "FR24"; break; }}
+                            else {{ logMsg += `[FR24 0대] `; }}
+                        }} else {{ logMsg += `[FR24 Proxy Empty] `; }}
+                    }} 
+                    else if (ep.type === 'fr24_raw') {{
+                        const frData = await res.json();
+                        let arr = [];
+                        for (let key in frData) {{
+                            if (['full_count', 'version', 'stats'].includes(key)) continue;
+                            let p = frData[key];
+                            arr.push({{ hex: p[0], lat: p[1], lon: p[2], track: p[3], alt_baro: p[4], gs: p[5], t: p[8], flight: p[13] || p[16] || p[0] }});
+                        }}
+                        if (arr.length > 0) {{ planes = arr; sourceNetwork = "FR24"; break; }}
+                        else {{ logMsg += `[FR24 Proxy2 0대] `; }}
+                    }}
+                }} catch (e) {{
+                    logMsg += `[${{ep.name}} CORS/Network Err] `;
+                }}
             }}
 
-            if ((dataSourceMode === "opensky") || (dataSourceMode === "auto" && planes.length < 5)) {{
-                try {{
-                    let result = await fetchOpenSky(minLat, maxLat, minLon, maxLon);
-                    if (result.length > 0) {{ planes = result; sourceNetwork = "OpenSky"; }}
-                }} catch (e) {{}}
-            }}
-
-            if ((dataSourceMode === "fr24") || (dataSourceMode === "auto" && planes.length === 0)) {{
-                try {{
-                    let result = await fetchFlightRadar24(minLat, maxLat, minLon, maxLon);
-                    if (result.length > 0) {{ planes = result; sourceNetwork = "FR24"; }}
-                }} catch (e) {{}}
-            }}
-
+            // 4개 망이 전부 실패하거나 진짜 0대인 경우 에러 상세 출력
             if (planes.length === 0) {{
-                let netName = (dataSourceMode === "auto") ? "자동탐색" : dataSourceMode.toUpperCase();
-                document.getElementById('status-box').innerText = "📡 0대 (결과 없음 - " + netName + ")";
-                document.getElementById('status-box').style.color = "#7f8c8d";
+                document.getElementById('status-box').innerText = "📡 0대 (통신 장애 또는 기체 없음)";
+                document.getElementById('status-box').style.color = "#e74c3c";
+                document.getElementById('p-callsign').innerText = "결과 없음";
+                document.getElementById('p-airline').style.color = "#c0392b";
+                document.getElementById('p-airline').innerText = "상세 진단 로그: " + logMsg;
                 return;
             }}
 
             document.getElementById('status-box').innerText = "📡 " + planes.length + "대 추적 중 [" + sourceNetwork + "]";
             document.getElementById('status-box').style.color = "#2ecc71";
+            document.getElementById('p-airline').style.color = "#4a5568";
 
             const now = Date.now();
             const currentIcaos = new Set();
@@ -326,7 +301,7 @@ radar_html = f"""
                 const heading = ac.track || 0;
                 const typeCode = ac.t || "N/A";
 
-                let airlineName = "일반 / 개인 항공기";
+                let airlineName = "일반 / 개인 / 군용기";
                 if (callsign.length >= 3) {{
                     const prefix = callsign.substring(0, 3).toUpperCase();
                     if (airlinesDB[prefix]) airlineName = airlinesDB[prefix];
@@ -348,7 +323,7 @@ radar_html = f"""
                 }}
 
                 flightHistory[icao].push({{ lat: ac.lat, lon: ac.lon, alt: alt, spd: spd, heading: heading, callsign: callsign, airline: airlineName, type: typeCode, time: now }});
-                flightHistory[icao] = flightHistory[icao].filter(p => now - p.time <= 900000);
+                flightHistory[icao] = flightHistory[icao].filter(p => now - p.time <= 900000); // 15분
                 if (flightHistory[icao].length > 120) flightHistory[icao].shift();
 
                 const hist = flightHistory[icao];
@@ -361,7 +336,7 @@ radar_html = f"""
                 }} else {{
                     const m = L.marker([ac.lat, ac.lon], {{ icon: newIcon }}).addTo(map);
                     m.bindTooltip(`<b>${{callsign}}</b><br>${{Math.round(alt)}} ft`, {{ direction: 'top' }});
-                    m.on('click', () => {{ selectedIcao = icao; updatePanel(hist[hist.length - 1], status.text, status.color); }});
+                    m.on('click', () => {{ selectedIcao = icao; updatePanel(hist[hist.length - 1], status.text, status.color, sourceNetwork); }});
                     markers[icao] = m;
                 }}
 
@@ -392,14 +367,14 @@ radar_html = f"""
             if (selectedIcao && flightHistory[selectedIcao]) {{
                 const targetHist = flightHistory[selectedIcao];
                 const st = checkStatus(targetHist);
-                updatePanel(targetHist[targetHist.length - 1], st.text, st.color);
+                updatePanel(targetHist[targetHist.length - 1], st.text, st.color, sourceNetwork);
             }}
         }}
 
-        function updatePanel(latest, statusText, color) {{
+        function updatePanel(latest, statusText, color, net) {{
             document.getElementById('p-callsign').innerText = latest.callsign;
             document.getElementById('p-callsign').style.color = color;
-            document.getElementById('p-airline').innerText = latest.airline;
+            document.getElementById('p-airline').innerText = latest.airline + " (" + net + "망 수신)";
             document.getElementById('p-type').innerText = latest.type;
             document.getElementById('p-alt').innerText = `${{Math.round(latest.alt).toLocaleString()}} ft`;
             document.getElementById('p-spd').innerText = `${{Math.round(latest.spd)}} kts`;
@@ -426,8 +401,9 @@ radar_html = f"""
 
         map.on('dblclick', function(e) {{ relocateHomePoint(e.latlng.lat, e.latlng.lng); }});
         
+        // 8초 주기 자동 갱신
         fetchFlightData();
-        setInterval(fetchFlightData, 10000);
+        setInterval(fetchFlightData, 8000);
     </script>
 </body>
 </html>

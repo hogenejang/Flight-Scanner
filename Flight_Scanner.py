@@ -466,8 +466,8 @@ radar_base_html = f"""
                     vspeed: p.vspeed, time: now
                 }});
 
-                flightHistory[icao] = flightHistory[icao].filter(pt => now - pt.time <= 900000);
-                if (flightHistory[icao].length > 120) flightHistory[icao].shift();
+                flightHistory[icao] = flightHistory[icao].filter(pt => now - pt.time <= 600000);
+                if (flightHistory[icao].length > 80) flightHistory[icao].shift();
 
                 const hist = flightHistory[icao];
                 const statusObj = getStatus(hist, p.vspeed);

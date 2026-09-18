@@ -97,7 +97,7 @@ with st.sidebar:
 init_lat = st.session_state.home_coords[0]
 init_lon = st.session_state.home_coords[1]
 
-# HTML / JS 엔진
+# HTML / JS 엔진 (f-string 이스케이프 수정 완료)
 radar_html = f"""
 <!DOCTYPE html>
 <html>
@@ -180,7 +180,7 @@ radar_html = f"""
         const airlinesDB = {airlines_json_str};
         let homeLat = {init_lat};
         let homeLon = {init_lon};
-        const dataSourceMode = "{selected_source_js}"; // 파이썬에서 주입된 선택값
+        const dataSourceMode = "{selected_source_js}";
 
         const map = L.map('map', {{ center: [homeLat, homeLon], zoom: 9, zoomControl: false, doubleClickZoom: false }});
         L.control.zoom({{ position: 'bottomright' }}).addTo(map);
@@ -212,7 +212,6 @@ radar_html = f"""
             return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        // 소스별 Fetch 함수 분리
         async function fetchAirplanesLive(lat, lon) {{
             const res = await fetch(`https://api.airplanes.live/v2/point/${{lat.toFixed(3)}}/${{lon.toFixed(3)}}/80`);
             if (res.ok) {{
@@ -256,7 +255,6 @@ radar_html = f"""
             return [];
         }}
 
-        // 메인 데이터 패치 로직
         async function fetchFlightData() {{
             document.getElementById('status-box').innerText = "📡 스캔 중...";
             document.getElementById('status-box').style.color = "#f39c12";
@@ -271,7 +269,6 @@ radar_html = f"""
             const minLon = (homeLon - radiusLon).toFixed(3);
             const maxLon = (homeLon + radiusLon).toFixed(3);
 
-            // 1. Airplanes.live (선택되었거나 Auto인 경우)
             if (dataSourceMode === "auto" || dataSourceMode === "airplanes") {{
                 try {{
                     let result = await fetchAirplanesLive(homeLat, homeLon);
@@ -279,7 +276,6 @@ radar_html = f"""
                 }} catch (e) {{}}
             }}
 
-            // 2. OpenSky Network (선택되었거나 (Auto이고 앞단 실패시))
             if ((dataSourceMode === "opensky") || (dataSourceMode === "auto" && planes.length < 5)) {{
                 try {{
                     let result = await fetchOpenSky(minLat, maxLat, minLon, maxLon);
@@ -287,7 +283,6 @@ radar_html = f"""
                 }} catch (e) {{}}
             }}
 
-            // 3. FR24 Proxy (선택되었거나 (Auto이고 앞단 전부 실패시))
             if ((dataSourceMode === "fr24") || (dataSourceMode === "auto" && planes.length === 0)) {{
                 try {{
                     let result = await fetchFlightRadar24(minLat, maxLat, minLon, maxLon);
@@ -295,15 +290,15 @@ radar_html = f"""
                 }} catch (e) {{}}
             }}
 
-            // 실패 및 0대 처리
+            // 수정: f-string 문법 충돌을 방지하기 위해 텍스트 연결 연산자(+) 사용
             if (planes.length === 0) {{
-                let netName = dataSourceMode === "auto" ? "하이브리드" : dataSourceMode;
-                document.getElementById('status-box').innerText = `📡 0대 (트래픽 없음 - ${netName})`;
+                let netName = (dataSourceMode === "auto") ? "하이브리드" : dataSourceMode;
+                document.getElementById('status-box').innerText = "📡 0대 (트래픽 없음 - " + netName + ")";
                 document.getElementById('status-box').style.color = "#7f8c8d";
                 return;
             }}
 
-            document.getElementById('status-box').innerText = `📡 ${{planes.length}}대 추적 중 [${{sourceNetwork}}]`;
+            document.getElementById('status-box').innerText = "📡 " + planes.length + "대 추적 중 [" + sourceNetwork + "]";
             document.getElementById('status-box').style.color = "#2ecc71";
 
             const now = Date.now();
@@ -347,7 +342,7 @@ radar_html = f"""
                 }}
 
                 flightHistory[icao].push({{ lat: ac.lat, lon: ac.lon, alt: alt, spd: spd, heading: heading, callsign: callsign, airline: airlineName, type: typeCode, time: now }});
-                flightHistory[icao] = flightHistory[icao].filter(p => now - p.time <= 900000); // 15분 유지
+                flightHistory[icao] = flightHistory[icao].filter(p => now - p.time <= 900000);
                 if (flightHistory[icao].length > 120) flightHistory[icao].shift();
 
                 const hist = flightHistory[icao];

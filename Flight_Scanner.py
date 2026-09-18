@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (100km 반경 = 54nm)
+# 2. 백엔드 데이터 수집 (반경 100km = 54nm)
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -163,7 +163,7 @@ def fetch_flight_data(lat, lon):
 
     return [], "No Signal"
 
-# 3. 홈포인트 설정
+# 3. 홈포인트 설정 (37°09'05.67"N, 126°44'34.96"E)
 if "home_coords" not in st.session_state:
     st.session_state.home_coords = [37.151575, 126.743044]
 
@@ -181,7 +181,7 @@ if "lat" in qp and "lon" in qp:
 
 with st.sidebar:
     st.header("⚙️ Radar Settings")
-    st.info("지도 위를 더블클릭/더블탭하거나 프리셋을 누르면 즉시 해당 지역으로 이동합니다.")
+    st.info("지도 위를 더블클릭/더블탭하거나 프리셋을 누르면 해당 지역으로 즉시 이동합니다.")
     st.markdown("### 📍 Location Presets")
     if st.button("🏠 기본 홈포인트 복귀", use_container_width=True):
         st.session_state.home_coords = [37.151575, 126.743044]
@@ -191,6 +191,9 @@ with st.sidebar:
         st.rerun()
     if st.button("🇰🇷 김포 국제공항 (RKSS)", use_container_width=True):
         st.session_state.home_coords = [37.5583, 126.7906]
+        st.rerun()
+    if st.button("⚓ 김해 국제공항 (RKPK)", use_container_width=True):
+        st.session_state.home_coords = [35.1728, 128.9392]
         st.rerun()
     if st.button("🌴 제주 국제공항 (RKPC)", use_container_width=True):
         st.session_state.home_coords = [33.5113, 126.4930]
@@ -310,42 +313,46 @@ radar_base_html = f"""
         }}).addTo(map).bindTooltip("Home Point (100km)");
 
         // -------------------------------------------------------------
-        // 영구 고정 Waypoint 레이어 (항적 루프 및 100km 필터와 완전 격리)
+        // 공인 eAIP 실측 정밀 Waypoint 레이어 (항적 루프와 분리된 영구 상주 레이어)
         // -------------------------------------------------------------
         const permanentFixLayer = L.layerGroup().addTo(map);
 
         const officialWaypoints = [
             // [인천 RKSI]
-            {{ name: "BOPTA", pos: [37.0733, 126.2417], type: "SID", note: "인천 남서 출발 전이점" }},
-            {{ name: "NOUTE", pos: [37.2167, 125.8667], type: "SID", note: "인천 서해 출역점 (A593/Y644)" }},
-            {{ name: "EGOBA", pos: [37.6667, 126.8833], type: "SID", note: "인천 북동/동해 전이점" }},
-            {{ name: "EVELS", pos: [37.6833, 126.4167], type: "SID", note: "인천 북부 출발 전이점" }},
-            {{ name: "RANOS", pos: [37.7500, 126.5833], type: "SID", note: "인천 북동 출발 분기점" }},
-            {{ name: "GUKDO", pos: [36.9833, 126.6500], type: "STAR", note: "인천 남부 주진입 픽스" }},
-            {{ name: "KARAS", pos: [37.1500, 126.0833], type: "STAR", note: "인천 남서 해상 진입점" }},
-            {{ name: "REKTO", pos: [37.2667, 126.1500], type: "IAF", note: "인천 RWY 33/34 진입 IAF" }},
+            {{ name: "BOPTA", pos: [36.7350, 126.6161], type: "SID", note: "인천 남서 출발 전이점" }},
+            {{ name: "NOUTE", pos: [37.2189, 125.8672], type: "SID", note: "인천 서해 출역점 (A593/Y644)" }},
+            {{ name: "EGOBA", pos: [37.6694, 126.8856], type: "SID", note: "인천 북동/동해 전이점" }},
+            {{ name: "KARAS", pos: [37.0789, 126.0847], type: "STAR", note: "인천 남서 해상 진입점" }},
+            {{ name: "REKTO", pos: [37.2728, 126.1558], type: "IAF", note: "인천 RWY 33/34 진입 IAF" }},
             {{ name: "OSPUR", pos: [37.6833, 126.2667], type: "IAF", note: "인천 RWY 15/16 진입 IAF" }},
             {{ name: "DANAN", pos: [37.6017, 126.3350], type: "IF", note: "인천 RWY 15L/R 중간접근점" }},
 
             // [김포 RKSS]
-            {{ name: "SEL", pos: [37.4306, 126.9389], type: "SID/VOR", note: "안양 VOR (김포 남행/동행 출발점)" }},
+            {{ name: "SEL", pos: [37.4136, 126.9283], type: "SID/VOR", note: "안양 VOR (김포 출발/도착 축)" }},
             {{ name: "SOTSU", pos: [37.3000, 126.9000], type: "SID", note: "김포 남쪽 출발 회랑 픽스" }},
-            {{ name: "BULLS", pos: [37.4167, 127.1833], type: "STAR", note: "김포 남동축 진입 픽스" }},
-            {{ name: "OLMEN", pos: [37.7833, 127.0500], type: "STAR", note: "김포 북동축 진입 전이점 (의정부 북측)" }},
+            {{ name: "OLMEN", pos: [36.7369, 126.9911], type: "STAR", note: "남부 접근 회랑 STAR 픽스" }},
+            {{ name: "BULLS", pos: [37.2742, 127.3556], type: "STAR", note: "김포 남동축 진입 픽스" }},
             {{ name: "YAGI", pos: [37.5833, 126.5500], type: "STAR", note: "김포 서부 진입 픽스" }},
+            {{ name: "SS801", pos: [37.4850, 126.8650], type: "IF", note: "김포 RWY 32 중간접근점" }},
+
+            // [김해 RKPK]
+            {{ name: "PSN", pos: [35.1728, 128.9392], type: "VOR/NDB", note: "부산 VOR/DME" }},
+            {{ name: "KAPLI", pos: [35.0483, 129.4183], type: "SID", note: "김해 동해/일본 방면 출역점" }},
+            {{ name: "BUSAN", pos: [34.9083, 128.9867], type: "SID", note: "김해 남해안 출발 전이점" }},
+            {{ name: "TOPAX", pos: [35.3400, 128.4900], type: "STAR", note: "김해 북서 내륙 진입점" }},
+            {{ name: "GAYHA", pos: [34.7833, 128.8000], type: "STAR", note: "김해 남해 해상 진입점" }},
+            {{ name: "PK701", pos: [35.0500, 128.9392], type: "IF", note: "김해 RWY 36 최종 정렬 IF" }},
 
             // [제주 RKPC]
-            {{ name: "TAMNA", pos: [33.6833, 126.3500], type: "SID", note: "제주 북서 출발 시발점" }},
-            {{ name: "DOTOL", pos: [33.2833, 126.2167], type: "SID", note: "제주 남서 출역점 (A593 국제선)" }},
-            {{ name: "MAKET", pos: [33.2333, 126.7500], type: "SID", note: "제주 남동 태평양/일본 방면 출발점" }},
-            {{ name: "SOSDO", pos: [33.8000, 126.6333], type: "STAR", note: "내륙-제주 북부 진입 주력 픽스" }},
+            {{ name: "TAMNA", pos: [33.6669, 126.3478], type: "SID", note: "제주 북서 출발 시발점" }},
+            {{ name: "DOTOL", pos: [34.2543, 126.6102], type: "SID/STAR", note: "내륙-제주 해상 회랑 접속점" }},
+            {{ name: "MAKET", pos: [33.9144, 127.3314], type: "SID", note: "제주 남동 태평양 방면 출발점" }},
+            {{ name: "SOSDO", pos: [33.8058, 126.6347], type: "STAR", note: "내륙-제주 북부 진입 주력 픽스" }},
             {{ name: "SARAS", pos: [33.4500, 126.8500], type: "STAR", note: "제주 동부 진입 픽스" }},
-            {{ name: "HAE", pos: [34.5833, 126.5833], type: "STAR/VOR", note: "해남 VOR (제주 관할 북측 경계)" }},
             {{ name: "PABSO", pos: [33.4933, 126.4300], type: "IAF/IF", note: "제주 RWY 07 계기접근 픽스" }},
             {{ name: "LAVAR", pos: [33.5283, 126.5567], type: "IAF/IF", note: "제주 RWY 25 계기접근 픽스" }}
         ];
 
-        // 픽스 마커는 최초 1회 렌더링 후 절대 지워지지 않음
         officialWaypoints.forEach(wp => {{
             let dotTypeClass = 'waypoint-dot';
             if (wp.type.includes('SID')) dotTypeClass += ' waypoint-dot-sid';
@@ -376,7 +383,7 @@ radar_base_html = f"""
         }});
 
         // -------------------------------------------------------------
-        // 동적 항공기 추적 엔진 (permanentFixLayer와 분리된 markers 딕셔너리 관리)
+        // 동적 항공기 추적 엔진
         // -------------------------------------------------------------
         let flightHistory = {{}};
         let markers = {{}};
@@ -571,7 +578,7 @@ radar_base_html = f"""
                 }}
             }});
 
-            // 100km 이탈 기체는 항공기 마커만 정리 (permanentFixLayer는 절대 건드리지 않음)
+            // 100km 이탈 기체는 항공기 마커만 정리 (permanentFixLayer는 영구 유지)
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -599,7 +606,6 @@ radar_base_html = f"""
             radarCircle.setLatLng([homeLat, homeLon]);
             map.panTo([homeLat, homeLon]);
 
-            // 이전 100km 반경 밖 항공기 마커만 정리
             Object.values(markers).forEach(m => map.removeLayer(m));
             Object.values(polylines).forEach(p => map.removeLayer(p));
             markers = {{}};

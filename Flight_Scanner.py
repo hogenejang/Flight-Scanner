@@ -12,7 +12,7 @@ st.set_page_config(
     page_title="Live Flight Scanner",
     page_icon="✈️",
     layout="wide",
-    initial_sidebar_state="collapsed"  # 모바일 화면을 위해 사이드바 기본 접힘
+    initial_sidebar_state="collapsed"
 )
 
 AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
@@ -62,18 +62,23 @@ def get_airline_info(callsign):
         return airlines_db[code]["name"], airlines_db[code]["country"]
     return "Unknown Airline", "Unknown"
 
+# 세션 상태 초기화
 if "flight_history" not in st.session_state:
     st.session_state.flight_history = {}
 if "home_coords" not in st.session_state:
     st.session_state.home_coords = (37.5665, 126.9780)
+if "last_processed_click" not in st.session_state:
+    st.session_state.last_processed_click = None
 
-# 모바일 상단 제어 바
+# 사이드바 설정
 with st.sidebar:
     st.header("⚙️ Radar Settings")
+    st.info("💡 Tip: 지도 아무 곳이나 클릭/더블클릭하면 해당 위치로 홈포인트가 즉시 변경됩니다.")
+    
     lat_input = st.number_input("Latitude", value=st.session_state.home_coords[0], format="%.4f")
     lon_input = st.number_input("Longitude", value=st.session_state.home_coords[1], format="%.4f")
     
-    if st.button("📍 Set New Home Point", use_container_width=True):
+    if st.button("📍 Set Coordinates Manually", use_container_width=True):
         st.session_state.home_coords = (lat_input, lon_input)
         st.session_state.flight_history.clear()
         st.rerun()
@@ -83,7 +88,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("""
-    **Aircraft Status Legend:**
+    **Status Legend:**
     * 🟢 **Level / Cruise / Taxi**
     * 🟡 **Climbing** (> +150 fpm)
     * 🔵 **Descending** (< -150 fpm)
@@ -119,158 +124,174 @@ def get_flight_status(hist):
         return "#3498db", f"Descending ({vs_fpm:.0f} fpm)"
     return "#2ecc71", "Level / Cruise"
 
-# 화면 깜빡임 없이 10초마다 해당 구역만 갱신하는 부분 렌더링 함수
-@st.fragment(run_every="10s")
-def render_live_dashboard():
-    current_time = time.time()
-    raw_aircraft = fetch_live_flights(*st.session_state.home_coords)
+# 데이터 수집 및 롤링 윈도우 처리
+current_time = time.time()
+raw_aircraft = fetch_live_flights(*st.session_state.home_coords)
 
-    for ac in raw_aircraft:
-        icao = ac.get('hex', '').strip().upper()
-        callsign = ac.get('flight', '').strip()
-        lat, lon = ac.get('lat'), ac.get('lon')
+for ac in raw_aircraft:
+    icao = ac.get('hex', '').strip().upper()
+    callsign = ac.get('flight', '').strip()
+    lat, lon = ac.get('lat'), ac.get('lon')
 
-        if not icao or lat is None or lon is None or not callsign:
+    if not icao or lat is None or lon is None or not callsign:
+        continue
+
+    alt_ft = ac.get('alt_baro')
+    on_ground = (alt_ft == "ground" or alt_ft is None)
+    alt_val = 0 if on_ground else alt_ft
+
+    spd_kts = ac.get('gs', 0.0) or 0.0
+    true_track = ac.get('track', 0.0) or 0.0
+    ac_type = ac.get('t', 'Unknown')
+    airline_name, airline_country = get_airline_info(callsign)
+
+    if icao not in st.session_state.flight_history:
+        st.session_state.flight_history[icao] = []
+        if not on_ground and spd_kts > 100:
+            rad = math.radians(true_track)
+            for past_sec in [30, 15]:
+                dist_km = (spd_kts * past_sec / 3600.0) * 1.852
+                d = dist_km / 6371.0
+                back_b = (rad + math.pi) % (2 * math.pi)
+                p_lat = math.asin(math.sin(math.radians(lat)) * math.cos(d) +
+                                  math.cos(math.radians(lat)) * math.sin(d) * math.cos(back_b))
+                p_lon = math.radians(lon) + math.atan2(
+                    math.sin(back_b) * math.sin(d) * math.cos(math.radians(lat)),
+                    math.cos(d) - math.sin(math.radians(lat)) * math.sin(p_lat)
+                )
+                st.session_state.flight_history[icao].append({
+                    'time': current_time - past_sec, 'lat': math.degrees(p_lat), 'lon': math.degrees(p_lon),
+                    'alt': alt_val, 'spd': spd_kts
+                })
+
+    st.session_state.flight_history[icao].append({
+        'time': current_time, 'lat': lat, 'lon': lon,
+        'alt': alt_val, 'spd': spd_kts, 'callsign': callsign,
+        'track': true_track, 'type': ac_type, 'airline': airline_name,
+        'country': airline_country, 'on_ground': on_ground
+    })
+
+for icao in list(st.session_state.flight_history.keys()):
+    st.session_state.flight_history[icao] = [
+        pt for pt in st.session_state.flight_history[icao] 
+        if current_time - pt['time'] <= MAX_HISTORY_SEC
+    ]
+    if len(st.session_state.flight_history[icao]) > MAX_HISTORY_POINTS:
+        st.session_state.flight_history[icao] = st.session_state.flight_history[icao][-MAX_HISTORY_POINTS:]
+    if not st.session_state.flight_history[icao]:
+        del st.session_state.flight_history[icao]
+
+tab_map, tab_chart = st.tabs(["🗺️ Radar Map", "📊 Flight Telemetry"])
+
+with tab_map:
+    # API 키 제한 없는 OpenStreetMap 기본 타일
+    m = folium.Map(
+        location=st.session_state.home_coords,
+        zoom_start=9,
+        tiles="OpenStreetMap"
+    )
+
+    # 100km 원형 경계선
+    folium.Circle(
+        location=st.session_state.home_coords,
+        radius=100000,
+        color="#2980b9",
+        weight=2,
+        fill=True,
+        fill_opacity=0.05
+    ).add_to(m)
+
+    # 홈포인트 십자가 마커
+    folium.Marker(
+        st.session_state.home_coords,
+        tooltip="Home point (Double-click/tap anywhere to move)",
+        icon=folium.Icon(color="red", icon="crosshairs", prefix="fa")
+    ).add_to(m)
+
+    # 항공기 마커 및 항적선
+    for icao, hist in st.session_state.flight_history.items():
+        if not hist:
             continue
+        latest = hist[-1]
+        color_hex, status_text = get_flight_status(hist)
 
-        alt_ft = ac.get('alt_baro')
-        on_ground = (alt_ft == "ground" or alt_ft is None)
-        alt_val = 0 if on_ground else alt_ft
+        visible_hist = [pt for pt in hist if current_time - pt['time'] <= display_limit_sec]
+        coords = [(pt['lat'], pt['lon']) for pt in visible_hist]
+        if len(coords) > 1:
+            folium.PolyLine(coords, color=color_hex, weight=2.5, opacity=0.8).add_to(m)
 
-        spd_kts = ac.get('gs', 0.0) or 0.0
-        true_track = ac.get('track', 0.0) or 0.0
-        ac_type = ac.get('t', 'Unknown')
-        airline_name, airline_country = get_airline_info(callsign)
-
-        if icao not in st.session_state.flight_history:
-            st.session_state.flight_history[icao] = []
-            if not on_ground and spd_kts > 100:
-                rad = math.radians(true_track)
-                for past_sec in [30, 15]:
-                    dist_km = (spd_kts * past_sec / 3600.0) * 1.852
-                    d = dist_km / 6371.0
-                    back_b = (rad + math.pi) % (2 * math.pi)
-                    p_lat = math.asin(math.sin(math.radians(lat)) * math.cos(d) +
-                                      math.cos(math.radians(lat)) * math.sin(d) * math.cos(back_b))
-                    p_lon = math.radians(lon) + math.atan2(
-                        math.sin(back_b) * math.sin(d) * math.cos(math.radians(lat)),
-                        math.cos(d) - math.sin(math.radians(lat)) * math.sin(p_lat)
-                    )
-                    st.session_state.flight_history[icao].append({
-                        'time': current_time - past_sec, 'lat': math.degrees(p_lat), 'lon': math.degrees(p_lon),
-                        'alt': alt_val, 'spd': spd_kts
-                    })
-
-        st.session_state.flight_history[icao].append({
-            'time': current_time, 'lat': lat, 'lon': lon,
-            'alt': alt_val, 'spd': spd_kts, 'callsign': callsign,
-            'track': true_track, 'type': ac_type, 'airline': airline_name,
-            'country': airline_country, 'on_ground': on_ground
-        })
-
-    for icao in list(st.session_state.flight_history.keys()):
-        st.session_state.flight_history[icao] = [
-            pt for pt in st.session_state.flight_history[icao] 
-            if current_time - pt['time'] <= MAX_HISTORY_SEC
-        ]
-        if len(st.session_state.flight_history[icao]) > MAX_HISTORY_POINTS:
-            st.session_state.flight_history[icao] = st.session_state.flight_history[icao][-MAX_HISTORY_POINTS:]
-        if not st.session_state.flight_history[icao]:
-            del st.session_state.flight_history[icao]
-
-    # 모바일용 레이아웃: 탭 형식으로 분할
-    tab_map, tab_chart = st.tabs(["🗺️ Radar Map", "📊 Flight Telemetry"])
-
-    with tab_map:
-        # API 키가 전혀 필요 없는 OpenStreetMap 기본 타일
-        m = folium.Map(
-            location=st.session_state.home_coords,
-            zoom_start=9,
-            tiles="OpenStreetMap"
-        )
-
-        folium.Circle(
-            location=st.session_state.home_coords,
-            radius=100000,
-            color="#2980b9",
-            weight=2,
+        popup_html = f"""
+        <b>Callsign:</b> {latest['callsign']}<br>
+        <b>Airline:</b> {latest.get('airline', 'N/A')}<br>
+        <b>Type:</b> {latest.get('type', 'N/A')}<br>
+        <b>Alt:</b> {latest['alt']:,} ft<br>
+        <b>Speed:</b> {latest['spd']:.0f} kts<br>
+        <b>Status:</b> {status_text}
+        """
+        folium.CircleMarker(
+            location=[latest['lat'], latest['lon']],
+            radius=6,
+            color=color_hex,
             fill=True,
-            fill_opacity=0.04
+            fill_color=color_hex,
+            fill_opacity=0.9,
+            popup=folium.Popup(popup_html, max_width=200),
+            tooltip=f"{latest['callsign']} ({latest['alt']:,} ft)"
         ).add_to(m)
 
-        folium.Marker(
-            st.session_state.home_coords,
-            tooltip="Home",
-            icon=folium.Icon(color="black", icon="home")
-        ).add_to(m)
+    # 클릭/더블클릭 좌표 이벤트 수신 (last_clicked만 수신하여 깜빡임 최소화)
+    map_state = st_folium(
+        m, 
+        width="100%", 
+        height=520, 
+        returned_objects=["last_clicked"]
+    )
 
-        for icao, hist in st.session_state.flight_history.items():
-            if not hist:
-                continue
-            latest = hist[-1]
-            color_hex, status_text = get_flight_status(hist)
+    # 지도 클릭 시 홈포인트 재설정 로직
+    if map_state and map_state.get("last_clicked"):
+        click_coords = (round(map_state["last_clicked"]["lat"], 4), round(map_state["last_clicked"]["lng"], 4))
+        if click_coords != st.session_state.last_processed_click and click_coords != st.session_state.home_coords:
+            st.session_state.last_processed_click = click_coords
+            st.session_state.home_coords = click_coords
+            st.session_state.flight_history.clear()
+            st.rerun()
 
-            visible_hist = [pt for pt in hist if current_time - pt['time'] <= display_limit_sec]
-            coords = [(pt['lat'], pt['lon']) for pt in visible_hist]
-            if len(coords) > 1:
-                folium.PolyLine(coords, color=color_hex, weight=2.5, opacity=0.8).add_to(m)
+with tab_chart:
+    active_planes = {
+        f"{hist[-1]['callsign']} ({icao})": icao 
+        for icao, hist in st.session_state.flight_history.items() if hist
+    }
 
-            popup_html = f"""
-            <b>Callsign:</b> {latest['callsign']}<br>
-            <b>Airline:</b> {latest.get('airline', 'N/A')}<br>
-            <b>Type:</b> {latest.get('type', 'N/A')}<br>
-            <b>Alt:</b> {latest['alt']:,} ft<br>
-            <b>Speed:</b> {latest['spd']:.0f} kts<br>
-            <b>Status:</b> {status_text}
-            """
-            folium.CircleMarker(
-                location=[latest['lat'], latest['lon']],
-                radius=6,
-                color=color_hex,
-                fill=True,
-                fill_color=color_hex,
-                fill_opacity=0.9,
-                popup=folium.Popup(popup_html, max_width=200),
-                tooltip=f"{latest['callsign']} ({latest['alt']:,} ft)"
-            ).add_to(m)
+    if active_planes:
+        selected_label = st.selectbox("Select Aircraft", options=list(active_planes.keys()), label_visibility="collapsed")
+        selected_icao = active_planes[selected_label]
+        target_hist = st.session_state.flight_history[selected_icao]
+        latest_data = target_hist[-1]
+        _, trend_str = get_flight_status(target_hist)
 
-        # returned_objects=[] 지정으로 맵 드래그 시 전체 재렌더링(깜빡임) 방지
-        st_folium(m, width="100%", height=500, returned_objects=[])
+        st.write(f"✈️ **{latest_data['callsign']}** | {latest_data.get('airline', 'N/A')} ({latest_data.get('type', 'Unknown')})")
+        st.write(f"• **Status:** {trend_str} | **Alt:** {latest_data['alt']:,} ft | **Speed:** {latest_data['spd']:.0f} kts")
 
-    with tab_chart:
-        active_planes = {
-            f"{hist[-1]['callsign']} ({icao})": icao 
-            for icao, hist in st.session_state.flight_history.items() if hist
-        }
+        x_relative = [int(pt['time'] - current_time) for pt in target_hist]
+        y_alt = [pt['alt'] for pt in target_hist]
+        y_spd = [pt['spd'] for pt in target_hist]
 
-        if active_planes:
-            selected_label = st.selectbox("Select Aircraft", options=list(active_planes.keys()), label_visibility="collapsed")
-            selected_icao = active_planes[selected_label]
-            target_hist = st.session_state.flight_history[selected_icao]
-            latest_data = target_hist[-1]
-            _, trend_str = get_flight_status(target_hist)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=x_relative, y=y_alt, name="Alt(ft)", line=dict(color="#e74c3c", width=2)))
+        fig.add_trace(go.Scatter(x=x_relative, y=y_spd, name="Speed(kts)", yaxis="y2", line=dict(color="#3498db", width=2)))
 
-            st.write(f"✈️ **{latest_data['callsign']}** | {latest_data.get('airline', 'N/A')} ({latest_data.get('type', 'Unknown')})")
-            st.write(f"• **Status:** {trend_str} | **Alt:** {latest_data['alt']:,} ft | **Speed:** {latest_data['spd']:.0f} kts")
+        fig.update_layout(
+            height=260,
+            margin=dict(l=10, r=10, t=20, b=10),
+            yaxis=dict(title="Alt (ft)"),
+            yaxis2=dict(title="Speed (kts)", overlaying="y", side="right"),
+            xaxis=dict(title="Seconds Ago (0=Now)"),
+            legend=dict(orientation="h", y=1.2, x=0.1)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No aircraft detected within 100km radius.")
 
-            x_relative = [int(pt['time'] - current_time) for pt in target_hist]
-            y_alt = [pt['alt'] for pt in target_hist]
-            y_spd = [pt['spd'] for pt in target_hist]
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=x_relative, y=y_alt, name="Alt(ft)", line=dict(color="#e74c3c", width=2)))
-            fig.add_trace(go.Scatter(x=x_relative, y=y_spd, name="Speed(kts)", yaxis="y2", line=dict(color="#3498db", width=2)))
-
-            fig.update_layout(
-                height=260,
-                margin=dict(l=10, r=10, t=20, b=10),
-                yaxis=dict(title="Alt (ft)"),
-                yaxis2=dict(title="Speed (kts)", overlaying="y", side="right"),
-                xaxis=dict(title="Seconds Ago (0=Now)"),
-                legend=dict(orientation="h", y=1.2, x=0.1)
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No aircraft detected within 100km radius.")
-
-render_live_dashboard()
+# 하단 수동 갱신 버튼
+if st.button("🔄 Refresh Radar Data", use_container_width=True):
+    st.rerun()

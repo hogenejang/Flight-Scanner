@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (반경 100km = 약 54nm)
+# 2. 백엔드 데이터 수집 (100km 반경 = 54nm)
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -181,7 +181,7 @@ if "lat" in qp and "lon" in qp:
 
 with st.sidebar:
     st.header("⚙️ Radar Settings")
-    st.info("지도 위를 더블클릭/더블탭하면 홈포인트가 즉시 이동하고 100km 재스캔됩니다.")
+    st.info("지도 위를 더블클릭/더블탭하거나 프리셋을 누르면 즉시 해당 지역으로 이동합니다.")
     st.markdown("### 📍 Location Presets")
     if st.button("🏠 기본 홈포인트 복귀", use_container_width=True):
         st.session_state.home_coords = [37.151575, 126.743044]
@@ -247,20 +247,20 @@ radar_base_html = f"""
         .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 1px; }}
         .card-value {{ font-size: 13px; font-weight: 800; color: #2d3748; white-space: nowrap; }}
 
-        /* 미니멀 Waypoint 스타일 */
+        /* 영구 고정 Waypoint 스타일 */
         .waypoint-dot {{
-            width: 6px; height: 6px; background: #4a5568;
-            transform: rotate(45deg); border: 1px solid #ffffff;
-            box-shadow: 0 0 2px rgba(0,0,0,0.4);
+            width: 7px; height: 7px; background: #4a5568;
+            transform: rotate(45deg); border: 1.5px solid #ffffff;
+            box-shadow: 0 0 3px rgba(0,0,0,0.5);
         }}
         .waypoint-dot-sid {{ background: #2b6cb0; }}
         .waypoint-dot-star {{ background: #2c7a7b; }}
         .waypoint-dot-app {{ background: #c53030; }}
         
         .waypoint-label {{
-            font-size: 9px !important; font-weight: 700 !important; color: #2d3748 !important;
+            font-size: 10px !important; font-weight: 800 !important; color: #1a202c !important;
             text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
-            white-space: nowrap; pointer-events: none; opacity: 0.85; letter-spacing: 0.2px;
+            white-space: nowrap; pointer-events: none; opacity: 0.9; letter-spacing: 0.3px;
         }}
     </style>
 </head>
@@ -310,9 +310,9 @@ radar_base_html = f"""
         }}).addTo(map).bindTooltip("Home Point (100km)");
 
         // -------------------------------------------------------------
-        // 공식 SID / STAR / 접근절차 핵심 Waypoint 레이어
+        // 영구 고정 Waypoint 레이어 (항적 루프 및 100km 필터와 완전 격리)
         // -------------------------------------------------------------
-        const waypointLayer = L.layerGroup().addTo(map);
+        const permanentFixLayer = L.layerGroup().addTo(map);
 
         const officialWaypoints = [
             // [인천 RKSI]
@@ -331,13 +331,13 @@ radar_base_html = f"""
             {{ name: "SEL", pos: [37.4306, 126.9389], type: "SID/VOR", note: "안양 VOR (김포 남행/동행 출발점)" }},
             {{ name: "SOTSU", pos: [37.3000, 126.9000], type: "SID", note: "김포 남쪽 출발 회랑 픽스" }},
             {{ name: "BULLS", pos: [37.4167, 127.1833], type: "STAR", note: "김포 남동축 진입 픽스" }},
-            {{ name: "OLMEN", pos: [37.7833, 127.0500], type: "STAR", note: "김포 북동축 진입 전이점" }},
+            {{ name: "OLMEN", pos: [37.7833, 127.0500], type: "STAR", note: "김포 북동축 진입 전이점 (의정부 북측)" }},
             {{ name: "YAGI", pos: [37.5833, 126.5500], type: "STAR", note: "김포 서부 진입 픽스" }},
 
             // [제주 RKPC]
             {{ name: "TAMNA", pos: [33.6833, 126.3500], type: "SID", note: "제주 북서 출발 시발점" }},
-            {{ name: "DOTOL", pos: [33.2833, 126.2167], type: "SID", note: "제주 남서 출역점 (A593)" }},
-            {{ name: "MAKET", pos: [33.2333, 126.7500], type: "SID", note: "제주 남동 태평양 방면 출발점" }},
+            {{ name: "DOTOL", pos: [33.2833, 126.2167], type: "SID", note: "제주 남서 출역점 (A593 국제선)" }},
+            {{ name: "MAKET", pos: [33.2333, 126.7500], type: "SID", note: "제주 남동 태평양/일본 방면 출발점" }},
             {{ name: "SOSDO", pos: [33.8000, 126.6333], type: "STAR", note: "내륙-제주 북부 진입 주력 픽스" }},
             {{ name: "SARAS", pos: [33.4500, 126.8500], type: "STAR", note: "제주 동부 진입 픽스" }},
             {{ name: "HAE", pos: [34.5833, 126.5833], type: "STAR/VOR", note: "해남 VOR (제주 관할 북측 경계)" }},
@@ -345,6 +345,7 @@ radar_base_html = f"""
             {{ name: "LAVAR", pos: [33.5283, 126.5567], type: "IAF/IF", note: "제주 RWY 25 계기접근 픽스" }}
         ];
 
+        // 픽스 마커는 최초 1회 렌더링 후 절대 지워지지 않음
         officialWaypoints.forEach(wp => {{
             let dotTypeClass = 'waypoint-dot';
             if (wp.type.includes('SID')) dotTypeClass += ' waypoint-dot-sid';
@@ -355,25 +356,27 @@ radar_base_html = f"""
                 icon: L.divIcon({{
                     className: '',
                     html: `<div class="${{dotTypeClass}}"></div>`,
-                    iconSize: [6, 6],
-                    iconAnchor: [3, 3]
-                }})
-            }}).addTo(waypointLayer);
-            marker.bindTooltip(`<b>${{wp.name}}</b> [${{wp.type}}]<br>${{wp.note}}`, {{ direction: 'top', opacity: 0.9 }});
+                    iconSize: [8, 8],
+                    iconAnchor: [4, 4]
+                }}),
+                zIndexOffset: 600
+            }}).addTo(permanentFixLayer);
+            marker.bindTooltip(`<b>${{wp.name}}</b> [${{wp.type}}]<br>${{wp.note}}`, {{ direction: 'top', opacity: 0.95 }});
 
             L.marker(wp.pos, {{
                 icon: L.divIcon({{
                     className: 'waypoint-label',
                     html: wp.name,
-                    iconSize: [40, 12],
-                    iconAnchor: [-5, 6]
+                    iconSize: [46, 14],
+                    iconAnchor: [-6, 7]
                 }}),
-                interactive: false
-            }}).addTo(waypointLayer);
+                interactive: false,
+                zIndexOffset: 600
+            }}).addTo(permanentFixLayer);
         }});
 
         // -------------------------------------------------------------
-        // 실시간 항공기 추적 엔진
+        // 동적 항공기 추적 엔진 (permanentFixLayer와 분리된 markers 딕셔너리 관리)
         // -------------------------------------------------------------
         let flightHistory = {{}};
         let markers = {{}};
@@ -568,6 +571,7 @@ radar_base_html = f"""
                 }}
             }});
 
+            // 100km 이탈 기체는 항공기 마커만 정리 (permanentFixLayer는 절대 건드리지 않음)
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -595,6 +599,7 @@ radar_base_html = f"""
             radarCircle.setLatLng([homeLat, homeLon]);
             map.panTo([homeLat, homeLon]);
 
+            // 이전 100km 반경 밖 항공기 마커만 정리
             Object.values(markers).forEach(m => map.removeLayer(m));
             Object.values(polylines).forEach(p => map.removeLayer(p));
             markers = {{}};

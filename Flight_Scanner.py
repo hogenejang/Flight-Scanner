@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (반경 100km = 54nm)
+# 2. 백엔드 데이터 수집 (반경 100km = 약 54nm)
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -163,7 +163,7 @@ def fetch_flight_data(lat, lon):
 
     return [], "No Signal"
 
-# 3. 홈포인트 설정 (37°09'05.67"N, 126°44'34.96"E)
+# 3. 홈포인트 설정 (기본값: 37°09'05.67"N, 126°44'34.96"E)
 if "home_coords" not in st.session_state:
     st.session_state.home_coords = [37.151575, 126.743044]
 
@@ -259,11 +259,28 @@ radar_base_html = f"""
         .waypoint-dot-sid {{ background: #2b6cb0; }}
         .waypoint-dot-star {{ background: #2c7a7b; }}
         .waypoint-dot-app {{ background: #c53030; }}
+        .waypoint-dot-airway {{ background: #4a5568; width: 6px; height: 6px; }}
         
         .waypoint-label {{
             font-size: 10px !important; font-weight: 800 !important; color: #1a202c !important;
             text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
             white-space: nowrap; pointer-events: none; opacity: 0.9; letter-spacing: 0.3px;
+        }}
+
+        /* Y711 / Y722 항로 뱃지 스타일 */
+        .airway-badge {{
+            font-size: 9px !important; font-weight: 800 !important;
+            letter-spacing: 0.5px; opacity: 0.85;
+            padding: 2px 6px !important; border-radius: 4px !important;
+            pointer-events: none !important;
+        }}
+        .airway-badge-y711 {{
+            color: #2b6cb0 !important; background: rgba(235, 248, 255, 0.85) !important;
+            border: 1px solid #90cdf4 !important;
+        }}
+        .airway-badge-y722 {{
+            color: #234e52 !important; background: rgba(230, 255, 250, 0.85) !important;
+            border: 1px solid #81e6d9 !important;
         }}
     </style>
 </head>
@@ -313,11 +330,68 @@ radar_base_html = f"""
         }}).addTo(map).bindTooltip("Home Point (100km)");
 
         // -------------------------------------------------------------
-        // 공인 eAIP 실측 정밀 Waypoint 레이어 (항적 루프와 분리된 영구 상주 레이어)
+        // 영구 고정 레이어 (Y711, Y722 항로선 및 공항별 주요 Fix)
         // -------------------------------------------------------------
         const permanentFixLayer = L.layerGroup().addTo(map);
 
-        const officialWaypoints = [
+        // 1. Y711 (남행 편도 항로) 공인 실측 픽스 및 선분
+        const y711Path = [
+            {{ name: "MONSI", pos: [37.2131, 126.8375], type: "Y711", note: "화성 비봉 (Y711 출발)" }},
+            {{ name: "BULTI", pos: [36.7228, 126.8250], type: "Y711", note: "아산/예산 경계" }},
+            {{ name: "MEKIL", pos: [36.5561, 126.8314], type: "Y711", note: "청양 북동부" }},
+            {{ name: "GONAX", pos: [36.3864, 126.8378], type: "Y711", note: "보령/부여" }},
+            {{ name: "BEDES", pos: [36.1514, 126.8122], type: "Y711", note: "서천/군산 경계" }},
+            {{ name: "ELPOS", pos: [35.9028, 126.7853], type: "Y711", note: "김제 서부" }},
+            {{ name: "MANGI", pos: [35.5031, 126.7422], type: "Y711", note: "고창/영광 (제주 STAR 전초)" }},
+            {{ name: "DOTOL", pos: [34.2543, 126.6102], type: "Y711/STAR", note: "완도 남쪽 해상 (제주 접근)" }}
+        ];
+
+        L.polyline(y711Path.map(f => f.pos), {{
+            color: '#3182ce',
+            weight: 2,
+            dashArray: '6, 6',
+            opacity: 0.65
+        }}).addTo(permanentFixLayer);
+
+        L.marker([36.4700, 126.8340], {{
+            icon: L.divIcon({{
+                className: 'airway-badge airway-badge-y711',
+                html: 'Y711 ↓ Southbound',
+                iconSize: [110, 18],
+                iconAnchor: [55, 9]
+            }}),
+            interactive: false
+        }}).addTo(permanentFixLayer);
+
+        // 2. Y722 (북행 편도 항로) 공인 실측 픽스 및 선분
+        const y722Path = [
+            {{ name: "MAKSA", pos: [35.5031, 126.9061], type: "Y722", note: "정읍 상공 (Y722 북상 합류)" }},
+            {{ name: "ATASO", pos: [35.8956, 126.9492], type: "Y722", note: "익산 북서부" }},
+            {{ name: "PEBRI", pos: [36.3864, 127.0036], type: "Y722", note: "공주/세종 서부" }},
+            {{ name: "OLMEN", pos: [36.7369, 126.9911], type: "Y722/STAR", note: "아산 남서부 (수도권 진입)" }},
+            {{ name: "SOT", pos: [37.0944, 127.0317], type: "Y722/VOR", note: "평택 송탄 VORTAC" }},
+            {{ name: "SEL", pos: [37.4136, 126.9283], type: "Y722/VOR", note: "안양 VOR (수도권 종착)" }}
+        ];
+
+        L.polyline(y722Path.map(f => f.pos), {{
+            color: '#285e61',
+            weight: 2,
+            dashArray: '6, 6',
+            opacity: 0.65
+        }}).addTo(permanentFixLayer);
+
+        L.marker([36.4700, 127.0000], {{
+            icon: L.divIcon({{
+                className: 'airway-badge airway-badge-y722',
+                html: 'Y722 ↑ Northbound',
+                iconSize: [110, 18],
+                iconAnchor: [55, 9]
+            }}),
+            interactive: false
+        }}).addTo(permanentFixLayer);
+
+        // 3. 주요 공항 터미널 픽스 (인천, 김포, 김해, 제주)
+        const terminalFixes = [
             // [인천 RKSI]
             {{ name: "BOPTA", pos: [36.7350, 126.6161], type: "SID", note: "인천 남서 출발 전이점" }},
             {{ name: "NOUTE", pos: [37.2189, 125.8672], type: "SID", note: "인천 서해 출역점 (A593/Y644)" }},
@@ -328,9 +402,7 @@ radar_base_html = f"""
             {{ name: "DANAN", pos: [37.6017, 126.3350], type: "IF", note: "인천 RWY 15L/R 중간접근점" }},
 
             // [김포 RKSS]
-            {{ name: "SEL", pos: [37.4136, 126.9283], type: "SID/VOR", note: "안양 VOR (김포 출발/도착 축)" }},
             {{ name: "SOTSU", pos: [37.3000, 126.9000], type: "SID", note: "김포 남쪽 출발 회랑 픽스" }},
-            {{ name: "OLMEN", pos: [36.7369, 126.9911], type: "STAR", note: "남부 접근 회랑 STAR 픽스" }},
             {{ name: "BULLS", pos: [37.2742, 127.3556], type: "STAR", note: "김포 남동축 진입 픽스" }},
             {{ name: "YAGI", pos: [37.5833, 126.5500], type: "STAR", note: "김포 서부 진입 픽스" }},
             {{ name: "SS801", pos: [37.4850, 126.8650], type: "IF", note: "김포 RWY 32 중간접근점" }},
@@ -345,7 +417,6 @@ radar_base_html = f"""
 
             // [제주 RKPC]
             {{ name: "TAMNA", pos: [33.6669, 126.3478], type: "SID", note: "제주 북서 출발 시발점" }},
-            {{ name: "DOTOL", pos: [34.2543, 126.6102], type: "SID/STAR", note: "내륙-제주 해상 회랑 접속점" }},
             {{ name: "MAKET", pos: [33.9144, 127.3314], type: "SID", note: "제주 남동 태평양 방면 출발점" }},
             {{ name: "SOSDO", pos: [33.8058, 126.6347], type: "STAR", note: "내륙-제주 북부 진입 주력 픽스" }},
             {{ name: "SARAS", pos: [33.4500, 126.8500], type: "STAR", note: "제주 동부 진입 픽스" }},
@@ -353,11 +424,19 @@ radar_base_html = f"""
             {{ name: "LAVAR", pos: [33.5283, 126.5567], type: "IAF/IF", note: "제주 RWY 25 계기접근 픽스" }}
         ];
 
-        officialWaypoints.forEach(wp => {{
+        // 중복 방지 병합 및 픽스 마커 렌더링
+        const allPermanentFixes = [...y711Path, ...y722Path, ...terminalFixes];
+        const registeredFixes = new Set();
+
+        allPermanentFixes.forEach(wp => {{
+            if (registeredFixes.has(wp.name)) return;
+            registeredFixes.add(wp.name);
+
             let dotTypeClass = 'waypoint-dot';
             if (wp.type.includes('SID')) dotTypeClass += ' waypoint-dot-sid';
             else if (wp.type.includes('STAR')) dotTypeClass += ' waypoint-dot-star';
-            else dotTypeClass += ' waypoint-dot-app';
+            else if (wp.type.includes('IAF') || wp.type.includes('IF')) dotTypeClass += ' waypoint-dot-app';
+            else if (wp.type.startsWith('Y7')) dotTypeClass += ' waypoint-dot-airway';
 
             const marker = L.marker(wp.pos, {{
                 icon: L.divIcon({{
@@ -383,7 +462,7 @@ radar_base_html = f"""
         }});
 
         // -------------------------------------------------------------
-        // 동적 항공기 추적 엔진
+        // 동적 항공기 추적 엔진 (permanentFixLayer와 분리된 관리)
         // -------------------------------------------------------------
         let flightHistory = {{}};
         let markers = {{}};
@@ -578,7 +657,7 @@ radar_base_html = f"""
                 }}
             }});
 
-            // 100km 이탈 기체는 항공기 마커만 정리 (permanentFixLayer는 영구 유지)
+            // 100km 이탈 기체는 markers 딕셔너리만 소거 (permanentFixLayer는 영구 유지)
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -643,7 +722,7 @@ radar_base_html = f"""
 
 components.html(radar_base_html, height=850, scrolling=False)
 
-# 5. 실시간 브릿지 프래그먼트
+# 5. 실시간 브릿지 프래그먼트 (5초마다 백엔드 동기화)
 @st.fragment(run_every="5s")
 def sync_data_stream():
     lat = st.session_state.home_coords[0]

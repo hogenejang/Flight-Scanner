@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 모바일 화면 공간 최적화
+# 모바일 및 전체 화면 최적화
 st.markdown("""
 <style>
     .block-container { padding: 0 !important; max-width: 100% !important; overflow: hidden; }
@@ -22,27 +22,76 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 1. 전 세계 항공사 데이터베이스 로드
+# 1. 항공사 데이터베이스 (국내 및 주요 국제선 사전 탑재 + OpenFlights 자동 병합)
+DEFAULT_AIRLINES = {
+    "KAL": "대한항공 (Korean Air)",
+    "AAR": "아시아나항공 (Asiana Airlines)",
+    "JJA": "제주항공 (Jeju Air)",
+    "JNA": "진에어 (Jin Air)",
+    "TWB": "티웨이항공 (T'way Air)",
+    "ASV": "에어서울 (Air Seoul)",
+    "ABL": "에어부산 (Air Busan)",
+    "ESR": "이스타항공 (Eastar Jet)",
+    "FGW": "플라이강원 (Fly Gangwon)",
+    "APJ": "피치항공 (Peach Aviation)",
+    "ANA": "전일본공수 (All Nippon Airways)",
+    "JAL": "일본항공 (Japan Airlines)",
+    "CPA": "캐세이퍼시픽 (Cathay Pacific)",
+    "CAL": "중화항공 (China Airlines)",
+    "EVA": "에바항공 (EVA Air)",
+    "CCA": "중국국제항공 (Air China)",
+    "CES": "중국동방항공 (China Eastern)",
+    "CSN": "중국남방항공 (China Southern)",
+    "SIA": "싱가포르항공 (Singapore Airlines)",
+    "THA": "타이항공 (Thai Airways)",
+    "MAS": "말레이시아항공 (Malaysia Airlines)",
+    "HVN": "베트남항공 (Vietnam Airlines)",
+    "VJC": "비엣젯항공 (VietJet Air)",
+    "PAL": "필리핀항공 (Philippine Airlines)",
+    "CEB": "세부퍼시픽 (Cebu Pacific)",
+    "UAE": "에미레이트항공 (Emirates)",
+    "QTR": "카타르항공 (Qatar Airways)",
+    "ETD": "에티하드항공 (Etihad Airways)",
+    "DLH": "루프트한자 (Lufthansa)",
+    "AFR": "에어프랑스 (Air France)",
+    "KLM": "KLM 네덜란드항공 (KLM)",
+    "BAW": "영국항공 (British Airways)",
+    "UAL": "유나이티드항공 (United Airlines)",
+    "DAL": "델타항공 (Delta Air Lines)",
+    "AAL": "아메리칸항공 (American Airlines)",
+    "FDX": "페덱스 익스프레스 (FedEx)",
+    "UPS": "UPS 항공 (UPS Airlines)",
+    "GTI": "아틀라스항공 (Atlas Air)",
+    "PAC": "폴라에어카고 (Polar Air Cargo)"
+}
+
 AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
 @st.cache_data(ttl=86400)
 def load_airlines():
-    db = {}
+    db = dict(DEFAULT_AIRLINES)
     try:
-        res = requests.get(AIRLINES_DATA_URL, timeout=5)
+        res = requests.get(AIRLINES_DATA_URL, timeout=4)
         if res.status_code == 200:
             reader = csv.reader(res.text.strip().splitlines())
             for row in reader:
                 if len(row) >= 7:
                     icao = row[4].strip().upper()
-                    if len(icao) == 3 and icao != "\\N":
-                        db[icao] = row[1].strip()
+                    name = row[1].strip()
+                    if len(icao) == 3 and icao != "\\N" and icao not in db:
+                        db[icao] = name
     except Exception:
         pass
     return db
 
 airlines_db = load_airlines()
 
-# 2. 파이썬 백엔드 데이터 수집 엔진 (CORS 문제 완전 배제)
+def resolve_airline_name(callsign):
+    if not callsign or len(callsign) < 3:
+        return ""
+    code = callsign[:3].upper()
+    return airlines_db.get(code, "")
+
+# 2. 파이썬 백엔드 실시간 데이터 수집 (CORS 원천 배제)
 def fetch_flight_data(lat, lon):
     radius_nm = 100  # 약 180km 커버리지
     lat_diff = radius_nm / 60.0
@@ -62,7 +111,7 @@ def fetch_flight_data(lat, lon):
             for k, v in data.items():
                 if k in ['full_count', 'version', 'stats']: 
                     continue
-                callsign = (v[13] or v[16] or v[0] or "Unknown").strip()
+                callsign = (v[13] or v[16] or v[0] or "").strip()
                 planes.append({
                     "hex": str(v[0]).upper(),
                     "lat": v[1],
@@ -72,7 +121,7 @@ def fetch_flight_data(lat, lon):
                     "spd": v[5] or 0,
                     "type": v[8] or "N/A",
                     "callsign": callsign,
-                    "airline": airlines_db.get(callsign[:3].upper(), "일반 / 개인 항공기")
+                    "airline": resolve_airline_name(callsign)
                 })
             if planes:
                 return planes, "Flightradar24"
@@ -87,7 +136,7 @@ def fetch_flight_data(lat, lon):
             data = res.json()
             planes = []
             for v in data.get("ac", []):
-                callsign = v.get("flight", "Unknown").strip()
+                callsign = v.get("flight", "").strip()
                 alt = v.get("alt_baro", 0)
                 if alt == "ground" or alt is None: 
                     alt = 0
@@ -100,7 +149,7 @@ def fetch_flight_data(lat, lon):
                     "spd": v.get("gs", 0),
                     "type": v.get("t", "N/A"),
                     "callsign": callsign,
-                    "airline": airlines_db.get(callsign[:3].upper(), "일반 / 개인 항공기")
+                    "airline": resolve_airline_name(callsign)
                 })
             return planes, "Airplanes.live"
     except Exception:
@@ -110,7 +159,7 @@ def fetch_flight_data(lat, lon):
 
 # 세션 상태 초기화
 if "home_coords" not in st.session_state:
-    st.session_state.home_coords = [37.4600, 126.4400]  # 인천공항 기본값
+    st.session_state.home_coords = [37.4600, 126.4400]  # 인천국제공항 기본값
 
 # 사이드바 프리셋
 with st.sidebar:
@@ -157,35 +206,37 @@ radar_base_html = f"""
             filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.6)); transition: transform 0.4s linear;
         }}
 
-        /* 비행기 옆에 고정되는 세부정보 카드 스타일 */
+        /* 비행기 옆에 고정 부착되는 상세 정보 카드 */
         .plane-hud-card {{
-            background: rgba(255, 255, 255, 0.96) !important;
-            border: 1px solid rgba(0,0,0,0.15) !important;
-            border-radius: 10px !important;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.25) !important;
-            padding: 8px 12px !important;
+            background: rgba(255, 255, 255, 0.97) !important;
+            border: 1px solid rgba(0,0,0,0.12) !important;
+            border-radius: 12px !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.22) !important;
+            padding: 10px 14px !important;
             color: #2c3e50 !important;
-            font-size: 12px !important;
-            min-width: 170px !important;
-            backdrop-filter: blur(6px) !important;
+            min-width: 180px !important;
+            backdrop-filter: blur(8px) !important;
             pointer-events: auto !important;
         }}
         .plane-hud-card:before {{
-            border-right-color: rgba(255, 255, 255, 0.96) !important;
+            border-right-color: rgba(255, 255, 255, 0.97) !important;
         }}
         .card-header {{
             display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #edf2f7; padding-bottom: 4px; margin-bottom: 5px;
+            border-bottom: 1px solid #edf2f7; padding-bottom: 5px; margin-bottom: 6px; gap: 8px;
         }}
-        .card-callsign {{ font-size: 16px; font-weight: 900; color: #e74c3c; line-height: 1; }}
-        .card-type {{ font-size: 10px; font-weight: bold; background: #edf2f7; padding: 2px 5px; border-radius: 3px; color: #4a5568; }}
-        .card-airline {{ font-size: 11px; font-weight: 600; color: #2d3748; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; margin-bottom: 6px; }}
+        .card-callsign {{ font-size: 18px; font-weight: 900; color: #e74c3c; line-height: 1; }}
+        .card-type {{ font-size: 10px; font-weight: bold; background: #edf2f7; padding: 2px 6px; border-radius: 4px; color: #4a5568; }}
+        .card-airline {{ 
+            font-size: 13px; font-weight: 700; color: #1a365d; margin-bottom: 8px; 
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; 
+        }}
         .card-metrics {{
-            display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 11px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;
         }}
         .card-metrics div {{ display: flex; flex-direction: column; }}
-        .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; }}
-        .card-value {{ font-size: 12px; font-weight: 800; color: #2d3748; }}
+        .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 1px; }}
+        .card-value {{ font-size: 13px; font-weight: 800; color: #2d3748; }}
     </style>
 </head>
 <body>
@@ -256,14 +307,15 @@ radar_base_html = f"""
             return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        // 항공기 옆에 밀착 고정될 상세 정보 HTML 생성기
+        // 항공기 옆에 부착되는 카드 템플릿 (항공사 이름 확실하게 표시)
         function makeHudContent(p, statusTxt, color) {{
+            const airlineHtml = p.airline ? `<div class="card-airline">${{p.airline}}</div>` : '';
             return `
             <div class="card-header">
-                <span class="card-callsign">${{p.callsign}}</span>
+                <span class="card-callsign">${{p.callsign || p.hex}}</span>
                 <span class="card-type">${{p.type || 'N/A'}}</span>
             </div>
-            <div class="card-airline">${{p.airline || '일반 / 개인 항공기'}}</div>
+            ${{airlineHtml}}
             <div class="card-metrics">
                 <div>
                     <span class="card-label">Altitude</span>
@@ -281,11 +333,10 @@ radar_base_html = f"""
             `;
         }}
 
-        // 지도 빈 곳 클릭 시 선택 해제
-        map.on('click', function(e) {{
+        // 지도 빈 공간 클릭 시 카드 닫기
+        map.on('click', function() {{
             if (selectedIcao && markers[selectedIcao]) {{
                 markers[selectedIcao].unbindTooltip();
-                // 기본 간이 툴팁으로 복귀
                 const hist = flightHistory[selectedIcao];
                 const latest = hist ? hist[hist.length - 1] : null;
                 if (latest) {{
@@ -295,7 +346,7 @@ radar_base_html = f"""
             selectedIcao = null;
         }});
 
-        // 파이썬에서 push된 데이터를 수신하여 깜빡임 없이 마커/항적선/상세 툴팁 갱신
+        // 실시간 데이터 수신 및 마커 추종
         window.updateFlightRadar = function(payload) {{
             const planes = payload.planes || [];
             const sourceName = payload.source || '';
@@ -318,7 +369,6 @@ radar_base_html = f"""
                 if (!icao || p.lat == null || p.lon == null) return;
                 currentIcaos.add(icao);
 
-                // 최초 감지 시 과거 꼬리선 보간
                 if (!flightHistory[icao]) {{
                     flightHistory[icao] = [];
                     if (p.alt > 0 && p.spd > 100) {{
@@ -330,7 +380,7 @@ radar_base_html = f"""
                             const pLat = Math.asin(Math.sin(p.lat * Math.PI / 180) * Math.cos(d) +
                                          Math.cos(p.lat * Math.PI / 180) * Math.sin(d) * Math.cos(backRad));
                             const pLon = (p.lon * Math.PI / 180) + Math.atan2(
-                                Math.sin(backRad) * Math.sin(d) * Math.cos(p.lat * Math.PI / 180),
+                                Math.sin(backRad) * Math.sin(d) * Math.cos(acLat = p.lat * Math.PI / 180),
                                 Math.cos(d) - Math.sin(p.lat * Math.PI / 180) * Math.sin(pLat)
                             );
                             flightHistory[icao].push({{
@@ -349,6 +399,9 @@ radar_base_html = f"""
                     alt: p.alt,
                     spd: p.spd,
                     track: p.track,
+                    callsign: p.callsign,
+                    airline: p.airline,
+                    type: p.type,
                     time: now
                 }});
 
@@ -359,7 +412,6 @@ radar_base_html = f"""
                 const status = getStatus(hist);
                 const isSelected = (selectedIcao === icao);
 
-                // 마커 생성 또는 이동
                 const newIcon = getIcon(p.track, status.color);
                 if (markers[icao]) {{
                     markers[icao].setLatLng([p.lat, p.lon]);
@@ -367,9 +419,8 @@ radar_base_html = f"""
                 }} else {{
                     const marker = L.marker([p.lat, p.lon], {{ icon: newIcon }}).addTo(map);
                     
-                    marker.on('click', L.DomEvent.stopPropagation); // 지도 클릭 이벤트로 전파 방지
+                    marker.on('click', L.DomEvent.stopPropagation);
                     marker.on('click', () => {{
-                        // 이전 선택된 마커가 있다면 툴팁 원복
                         if (selectedIcao && markers[selectedIcao] && selectedIcao !== icao) {{
                             markers[selectedIcao].unbindTooltip();
                             const prevHist = flightHistory[selectedIcao];
@@ -380,8 +431,6 @@ radar_base_html = f"""
                         }}
 
                         selectedIcao = icao;
-                        
-                        // 클릭된 비행기 옆에 상세 HUD 카드 고정 부착
                         marker.unbindTooltip();
                         marker.bindTooltip(makeHudContent(p, status.text, status.color), {{
                             permanent: true,
@@ -394,7 +443,7 @@ radar_base_html = f"""
                     markers[icao] = marker;
                 }}
 
-                // 선택된 비행기인 경우, 마커 옆 고정 툴팁 내용 실시간 갱신 (위치 따라다님)
+                // 선택된 상태인 경우 마커 위치를 따라 카드 갱신
                 if (isSelected) {{
                     markers[icao].unbindTooltip();
                     markers[icao].bindTooltip(makeHudContent(p, status.text, status.color), {{
@@ -421,7 +470,7 @@ radar_base_html = f"""
                 }}
             }});
 
-            // 반경 이탈 기체 정리
+            // 화면 이탈 기체 제거
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -434,7 +483,7 @@ radar_base_html = f"""
             }});
         }};
 
-        // 더블클릭/더블탭 홈포인트 즉시 재설정
+        // 더블클릭/더블탭 시 홈포인트 이동
         function relocateHome(newLat, newLon) {{
             homeLat = newLat;
             homeLon = newLon;
@@ -463,7 +512,7 @@ radar_base_html = f"""
 
 components.html(radar_base_html, height=850, scrolling=False)
 
-# 4. 실시간 브릿지 프래그먼트 (5초마다 파이썬이 데이터 전송)
+# 4. 실시간 브릿지 프래그먼트 (5초 주기 파이썬 백엔드 Fetch & 인라인 주입)
 @st.fragment(run_every="5s")
 def sync_data_stream():
     planes, source_name = fetch_flight_data(st.session_state.home_coords[0], st.session_state.home_coords[1])

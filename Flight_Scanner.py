@@ -66,9 +66,9 @@ def resolve_airline_name(callsign):
         return ""
     return airlines_db.get(callsign[:3].upper(), "")
 
-# 2. 파이썬 백엔드 데이터 수집 (반경 100km = 약 54해리 적용)
+# 2. 파이썬 백엔드 데이터 수집 (반경 100km 및 fpm 추출)
 def fetch_flight_data(lat, lon):
-    radius_nm = 54  # 정확한 100km 커버리지 (100km / 1.852 ≈ 54nm)
+    radius_nm = 54  # 100km 반경
     lat_diff = radius_nm / 60.0
     lon_diff = radius_nm / (60.0 * math.cos(math.radians(lat)))
     
@@ -87,6 +87,7 @@ def fetch_flight_data(lat, lon):
                 if k in ['full_count', 'version', 'stats']: 
                     continue
                 callsign = (v[13] or v[16] or v[0] or "").strip()
+                vspeed = v[15] if len(v) > 15 and v[15] is not None else None
                 planes.append({
                     "hex": str(v[0]).upper(),
                     "lat": v[1],
@@ -94,6 +95,7 @@ def fetch_flight_data(lat, lon):
                     "track": v[3] or 0,
                     "alt": v[4] or 0,
                     "spd": v[5] or 0,
+                    "vspeed": vspeed,
                     "type": v[8] or "N/A",
                     "callsign": callsign,
                     "airline": resolve_airline_name(callsign)
@@ -115,6 +117,7 @@ def fetch_flight_data(lat, lon):
                 alt = v.get("alt_baro", 0)
                 if alt == "ground" or alt is None: 
                     alt = 0
+                vspeed = v.get("baro_rate") if v.get("baro_rate") is not None else v.get("geom_rate")
                 planes.append({
                     "hex": v.get("hex", "").upper(),
                     "lat": v.get("lat"),
@@ -122,6 +125,7 @@ def fetch_flight_data(lat, lon):
                     "track": v.get("track", 0),
                     "alt": alt,
                     "spd": v.get("gs", 0),
+                    "vspeed": vspeed,
                     "type": v.get("t", "N/A"),
                     "callsign": callsign,
                     "airline": resolve_airline_name(callsign)
@@ -132,11 +136,10 @@ def fetch_flight_data(lat, lon):
 
     return [], "No Signal"
 
-# 3. 홈포인트 좌표 동기화 (JS 더블클릭 -> 파이썬 상태 동기화)
+# 3. 홈포인트 좌표 동기화
 if "home_coords" not in st.session_state:
     st.session_state.home_coords = [37.4600, 126.4400]  # 기본값: 인천공항
 
-# 브라우저에서 더블클릭으로 넘어온 새 위경도 확인
 qp = st.query_params
 if "lat" in qp and "lon" in qp:
     try:
@@ -165,7 +168,7 @@ with st.sidebar:
 
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
-# 4. 지도 프레임 렌더링 (홈포인트 100km 원형 및 양방향 동기화 탑재)
+# 4. 지도 프레임 렌더링 (FPM 표시 HUD 포함)
 radar_base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -201,7 +204,7 @@ radar_base_html = f"""
             box-shadow: 0 8px 24px rgba(0,0,0,0.22) !important;
             padding: 10px 14px !important;
             color: #2c3e50 !important;
-            min-width: 180px !important;
+            min-width: 195px !important;
             backdrop-filter: blur(8px) !important;
             pointer-events: auto !important;
         }}
@@ -219,11 +222,11 @@ radar_base_html = f"""
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; 
         }}
         .card-metrics {{
-            display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px;
         }}
         .card-metrics div {{ display: flex; flex-direction: column; }}
         .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 1px; }}
-        .card-value {{ font-size: 13px; font-weight: 800; color: #2d3748; }}
+        .card-value {{ font-size: 13px; font-weight: 800; color: #2d3748; white-space: nowrap; }}
     </style>
 </head>
 <body>
@@ -255,7 +258,6 @@ radar_base_html = f"""
             attribution: '© OpenStreetMap'
         }}).addTo(map);
 
-        // 정확한 100km (100,000m) 원형 레이더
         let radarCircle = L.circle([homeLat, homeLon], {{
             radius: 100000,
             color: '#2980b9',
@@ -282,20 +284,39 @@ radar_base_html = f"""
             return L.divIcon({{ className: '', html: html, iconSize: [24,24], iconAnchor: [12,12] }});
         }}
 
-        function getStatus(hist) {{
-            if (!hist || hist.length < 2) return {{ color: '#2ecc71', text: 'Level' }};
-            const p0 = hist[Math.max(0, hist.length - 4)];
-            const p1 = hist[hist.length - 1];
-            const dt = (p1.time - p0.time) / 1000;
-            if (dt <= 0) return {{ color: '#2ecc71', text: 'Level' }};
+        // 실시간 분당상승률(fpm) 및 상태 판별
+        function getStatus(hist, rawVspeed) {{
+            let vsFpm = 0;
+            if (rawVspeed !== null && rawVspeed !== undefined) {{
+                vsFpm = Math.round(rawVspeed);
+            }} else if (hist && hist.length >= 2) {{
+                const p0 = hist[Math.max(0, hist.length - 4)];
+                const p1 = hist[hist.length - 1];
+                const dt = (p1.time - p0.time) / 1000;
+                if (dt > 0) {{
+                    vsFpm = Math.round(((p1.alt - p0.alt) / dt) * 60);
+                }}
+            }}
 
-            const vsFpm = ((p1.alt - p0.alt) / dt) * 60;
-            if (vsFpm > 150) return {{ color: '#f1c40f', text: `Climb (+${{Math.round(vsFpm)}})` }};
-            if (vsFpm < -150) return {{ color: '#3498db', text: `Desc (${{Math.round(vsFpm)}})` }};
-            return {{ color: '#2ecc71', text: 'Level' }};
+            let color = '#2ecc71';
+            let text = 'Level';
+
+            if (vsFpm > 150) {{
+                color = '#f1c40f';
+                text = 'Climb';
+            }} else if (vsFpm < -150) {{
+                color = '#3498db';
+                text = 'Desc';
+            }}
+
+            const sign = vsFpm > 0 ? '+' : '';
+            const fpmText = `${{sign}}${{vsFpm.toLocaleString()}} fpm`;
+
+            return {{ color, text, fpmText, vsFpm }};
         }}
 
-        function makeHudContent(p, statusTxt, color) {{
+        // 분당상승률(FPM)이 포함된 2x2 세부정보 카드 생성
+        function makeHudContent(p, statusObj) {{
             const airlineHtml = p.airline ? `<div class="card-airline">${{p.airline}}</div>` : '';
             return `
             <div class="card-header">
@@ -312,9 +333,13 @@ radar_base_html = f"""
                     <span class="card-label">Speed</span>
                     <span class="card-value">${{Math.round(p.spd)}} kts</span>
                 </div>
-                <div style="grid-column: span 2; margin-top: 3px;">
+                <div>
+                    <span class="card-label">V. Rate (FPM)</span>
+                    <span class="card-value" style="color: ${{statusObj.color}};">${{statusObj.fpmText}}</span>
+                </div>
+                <div>
                     <span class="card-label">Status</span>
-                    <span class="card-value" style="color: ${{color}};">${{statusTxt}}</span>
+                    <span class="card-value" style="color: ${{statusObj.color}};">${{statusObj.text}}</span>
                 </div>
             </div>
             `;
@@ -332,7 +357,6 @@ radar_base_html = f"""
             selectedIcao = null;
         }});
 
-        // 실시간 데이터 수신 및 100km 원형 마커 렌더링
         window.updateFlightRadar = function(payload) {{
             const planes = payload.planes || [];
             const sourceName = payload.source || '';
@@ -346,7 +370,6 @@ radar_base_html = f"""
                 const icao = p.hex;
                 if (!icao || p.lat == null || p.lon == null) return;
 
-                // 100km 초과 기체는 렌더링 제외 (실제 구면 거리 계산)
                 const distKm = Math.hypot(p.lat - homeLat, (p.lon - homeLon) * Math.cos(homeLat * Math.PI / 180)) * 111.32;
                 if (distKm > 100) return;
 
@@ -364,7 +387,7 @@ radar_base_html = f"""
                             const pLat = Math.asin(Math.sin(p.lat * Math.PI / 180) * Math.cos(d) +
                                          Math.cos(p.lat * Math.PI / 180) * Math.sin(d) * Math.cos(backRad));
                             const pLon = (p.lon * Math.PI / 180) + Math.atan2(
-                                Math.sin(backRad) * Math.sin(d) * Math.cos(p.lat * Math.PI / 180),
+                                Math.sin(backRad) * Math.sin(d) * Math.cos(acLat = p.lat * Math.PI / 180),
                                 Math.cos(d) - Math.sin(p.lat * Math.PI / 180) * Math.sin(pLat)
                             );
                             flightHistory[icao].push({{
@@ -379,17 +402,18 @@ radar_base_html = f"""
 
                 flightHistory[icao].push({{
                     lat: p.lat, lon: p.lon, alt: p.alt, spd: p.spd,
-                    track: p.track, callsign: p.callsign, airline: p.airline, type: p.type, time: now
+                    track: p.track, callsign: p.callsign, airline: p.airline, type: p.type,
+                    vspeed: p.vspeed, time: now
                 }});
 
                 flightHistory[icao] = flightHistory[icao].filter(pt => now - pt.time <= 900000);
                 if (flightHistory[icao].length > 120) flightHistory[icao].shift();
 
                 const hist = flightHistory[icao];
-                const status = getStatus(hist);
+                const statusObj = getStatus(hist, p.vspeed);
                 const isSelected = (selectedIcao === icao);
 
-                const newIcon = getIcon(p.track, status.color);
+                const newIcon = getIcon(p.track, statusObj.color);
                 if (markers[icao]) {{
                     markers[icao].setLatLng([p.lat, p.lon]);
                     markers[icao].setIcon(newIcon);
@@ -409,7 +433,7 @@ radar_base_html = f"""
 
                         selectedIcao = icao;
                         marker.unbindTooltip();
-                        marker.bindTooltip(makeHudContent(p, status.text, status.color), {{
+                        marker.bindTooltip(makeHudContent(p, statusObj), {{
                             permanent: true,
                             direction: 'right',
                             offset: [15, -15],
@@ -422,7 +446,7 @@ radar_base_html = f"""
 
                 if (isSelected) {{
                     markers[icao].unbindTooltip();
-                    markers[icao].bindTooltip(makeHudContent(p, status.text, status.color), {{
+                    markers[icao].bindTooltip(makeHudContent(p, statusObj), {{
                         permanent: true,
                         direction: 'right',
                         offset: [15, -15],
@@ -435,17 +459,16 @@ radar_base_html = f"""
                 const latlngs = hist.map(pt => [pt.lat, pt.lon]);
                 if (polylines[icao]) {{
                     polylines[icao].setLatLngs(latlngs);
-                    polylines[icao].setStyle({{ color: status.color, weight: isSelected ? 4 : 3 }});
+                    polylines[icao].setStyle({{ color: statusObj.color, weight: isSelected ? 4 : 3 }});
                 }} else {{
                     polylines[icao] = L.polyline(latlngs, {{
-                        color: status.color,
+                        color: statusObj.color,
                         weight: isSelected ? 4 : 3,
                         opacity: isSelected ? 0.9 : 0.75
                     }}).addTo(map);
                 }}
             }});
 
-            // 100km 범위를 벗어난 기체는 지도에서 완전히 제거
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
@@ -466,7 +489,6 @@ radar_base_html = f"""
             }}
         }};
 
-        // 더블클릭/더블탭 시 홈포인트 이동 및 파이썬 백엔드로 새 좌표 즉시 전달
         function relocateHome(newLat, newLon) {{
             homeLat = newLat;
             homeLon = newLon;
@@ -474,7 +496,6 @@ radar_base_html = f"""
             radarCircle.setLatLng([homeLat, homeLon]);
             map.panTo([homeLat, homeLon]);
 
-            // 기존 100km 밖 마커 즉시 소거
             Object.values(markers).forEach(m => map.removeLayer(m));
             Object.values(polylines).forEach(p => map.removeLayer(p));
             markers = {{}};
@@ -485,7 +506,6 @@ radar_base_html = f"""
             document.getElementById('status-box').innerText = "📡 새 위치 재스캔 요청 중...";
             document.getElementById('status-box').style.color = "#f39c12";
 
-            // 핵심: 부모 창(Streamlit)의 쿼리 스트링을 변경하여 파이썬 백엔드가 새 좌표를 가져오도록 트리거
             try {{
                 const parentUrl = new URL(window.parent.location.href);
                 parentUrl.searchParams.set("lat", newLat.toFixed(4));
@@ -513,14 +533,12 @@ radar_base_html = f"""
 
 components.html(radar_base_html, height=850, scrolling=False)
 
-# 5. 실시간 브릿지 프래그먼트 (5초마다 파이썬이 데이터 전송)
+# 5. 실시간 브릿지 프래그먼트
 @st.fragment(run_every="5s")
 def sync_data_stream():
-    # 파이썬이 현재 저장된 홈포인트(더블클릭 반영된 좌표) 주변 100km를 가져옵니다
     lat = st.session_state.home_coords[0]
     lon = st.session_state.home_coords[1]
     
-    # 쿼리 파라미터가 들어왔다면 즉시 반영
     qp = st.query_params
     if "lat" in qp and "lon" in qp:
         try:

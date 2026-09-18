@@ -25,7 +25,6 @@ st.markdown("""
 AIRLINES_DATA_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat"
 LOCAL_AIRLINE_FILE = "airlines_db.dat"
 
-# 항공사 데이터베이스 로드
 @st.cache_data(ttl=86400)
 def get_airlines_json():
     data_text = ""
@@ -59,9 +58,8 @@ def get_airlines_json():
 
 airlines_json_str = get_airlines_json()
 
-# 세션 상태 초기화 (사이드바 제어용)
 if "home_coords" not in st.session_state:
-    st.session_state.home_coords = [37.5665, 126.9780] # 기본값: 서울
+    st.session_state.home_coords = [37.5665, 126.9780] 
 
 with st.sidebar:
     st.header("⚙️ Radar Settings")
@@ -82,11 +80,10 @@ with st.sidebar:
         st.session_state.home_coords = [37.5665, 126.9780]
         st.rerun()
 
-# 파이썬 변수를 JS로 주입
 init_lat = st.session_state.home_coords[0]
 init_lon = st.session_state.home_coords[1]
 
-# 무깜빡임 실시간 레이더 HTML/JS 엔진
+# UI 패널이 명확하게 구분된 HTML 렌더러
 radar_html = f"""
 <!DOCTYPE html>
 <html>
@@ -97,44 +94,75 @@ radar_html = f"""
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body, html {{ margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-        #map {{ height: calc(100vh - 86px); width: 100%; background: #e5e9ec; }}
+        
+        /* 전체 레이아웃 (상단바: 40px, 하단 패널: 80px) */
+        #map {{ height: calc(100vh - 120px); width: 100%; background: #e5e9ec; }}
+        
         .header-bar {{
-            height: 36px; background: #1e272c; color: #ecf0f1; padding: 0 12px;
-            display: flex; justify-content: space-between; align-items: center; font-size: 12px;
+            height: 40px; background: #1e272c; color: #ecf0f1; padding: 0 15px;
+            display: flex; justify-content: space-between; align-items: center; font-size: 13px;
         }}
-        .legend-item {{ display: inline-flex; align-items: center; margin-left: 8px; }}
-        .legend-dot {{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }}
-        .telemetry-bar {{
-            height: 50px; background: #ffffff; border-top: 1px solid #dcdde1; padding: 4px 12px;
-            display: flex; align-items: center; gap: 8px; overflow-x: auto; font-size: 12px; white-space: nowrap;
+        .api-status {{ font-weight: bold; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.1); }}
+        
+        /* 하단 비행기 정보 대시보드 */
+        .bottom-panel {{
+            height: 80px; background: #ffffff; border-top: 1px solid #dcdde1; 
+            display: flex; justify-content: space-around; align-items: center; padding: 0 15px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
         }}
-        .badge {{ background: #f1f2f6; padding: 4px 8px; border-radius: 4px; color: #2f3542; border: 1px solid #e4e7eb; display: inline-block; }}
-        .badge b {{ color: #1e272c; }}
+        .plane-id {{ display: flex; flex-direction: column; width: 25%; }}
+        .info-col {{ display: flex; flex-direction: column; align-items: center; width: 20%; }}
+        
+        .info-label {{ font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: bold; margin-bottom: 4px; }}
+        .callsign-val {{ font-size: 20px; font-weight: 900; color: #e74c3c; line-height: 1.1; }}
+        .airline-val {{ font-size: 13px; color: #34495e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+        .info-val {{ font-size: 18px; font-weight: bold; color: #2c3e50; }}
+        
+        /* 지도 아이콘 */
         .icon-wrapper {{
             width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
             filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.6)); transition: transform 0.4s linear;
+        }}
+
+        /* 스마트폰 세로 화면 반응형 */
+        @media (max-width: 600px) {{
+            .header-bar {{ font-size: 11px; padding: 0 10px; }}
+            #map {{ height: calc(100vh - 140px); }}
+            .bottom-panel {{ height: 100px; flex-wrap: wrap; justify-content: flex-start; padding: 10px; }}
+            .plane-id {{ width: 100%; border-bottom: 1px solid #f1f2f6; padding-bottom: 6px; margin-bottom: 6px; }}
+            .info-col {{ width: 33%; align-items: flex-start; }}
+            .callsign-val {{ font-size: 18px; }}
+            .info-val {{ font-size: 15px; }}
         }}
     </style>
 </head>
 <body>
     <div class="header-bar">
-        <span>🎯 <b>Double-click/Tap map</b> to set Home point</span>
-        <div>
-            <span class="legend-item"><span class="legend-dot" style="background:#2ecc71;"></span>Level</span>
-            <span class="legend-item"><span class="legend-dot" style="background:#f1c40f;"></span>Climb</span>
-            <span class="legend-item"><span class="legend-dot" style="background:#3498db;"></span>Desc</span>
-        </div>
+        <span>🎯 <b>100km Radar</b> (Dbl-click to move)</span>
+        <span class="api-status" id="tel-count" style="color:#f39c12;">Initializing...</span>
     </div>
 
     <div id="map"></div>
 
-    <div class="telemetry-bar">
-        <span class="badge">📡 API: <b id="tel-count" style="color:#e67e22;">Initializing...</b></span>
-        <span class="badge">Plane: <b id="tel-callsign">Click a plane</b></span>
-        <span class="badge">Airline: <b id="tel-airline">-</b></span>
-        <span class="badge">Alt: <b id="tel-alt">-</b></span>
-        <span class="badge">Speed: <b id="tel-spd">-</b></span>
-        <span class="badge">Status: <b id="tel-status">-</b></span>
+    <!-- 하단 비행기 정보 패널 -->
+    <div class="bottom-panel">
+        <div class="plane-id">
+            <span class="info-label">Selected Aircraft</span>
+            <span class="callsign-val" id="tel-callsign">Click a plane</span>
+            <span class="airline-val" id="tel-airline">on the map</span>
+        </div>
+        <div class="info-col">
+            <span class="info-label">Altitude</span>
+            <span class="info-val" id="tel-alt">-</span>
+        </div>
+        <div class="info-col">
+            <span class="info-label">Speed</span>
+            <span class="info-val" id="tel-spd">-</span>
+        </div>
+        <div class="info-col">
+            <span class="info-label">Status</span>
+            <span class="info-val" id="tel-status">-</span>
+        </div>
     </div>
 
     <script>
@@ -189,18 +217,17 @@ radar_html = f"""
         }}
 
         function checkStatus(hist) {{
-            if (hist.length < 2) return {{ color: '#2ecc71', text: 'Level / Cruise' }};
+            if (hist.length < 2) return {{ color: '#2ecc71', text: 'Level' }};
             const p0 = hist[Math.max(0, hist.length - 4)];
             const p1 = hist[hist.length - 1];
             const dt = (p1.time - p0.time) / 1000;
-            if (dt <= 0) return {{ color: '#2ecc71', text: 'Level / Cruise' }};
+            if (dt <= 0) return {{ color: '#2ecc71', text: 'Level' }};
             const vsFpm = ((p1.alt - p0.alt) / dt) * 60;
-            if (vsFpm > 150) return {{ color: '#f1c40f', text: `Climb (+${{Math.round(vsFpm)}})` }};
-            if (vsFpm < -150) return {{ color: '#3498db', text: `Desc (${{Math.round(vsFpm)}})` }};
-            return {{ color: '#2ecc71', text: 'Level / Cruise' }};
+            if (vsFpm > 150) return {{ color: '#f1c40f', text: `Climb` }};
+            if (vsFpm < -150) return {{ color: '#3498db', text: `Desc` }};
+            return {{ color: '#2ecc71', text: 'Level' }};
         }}
 
-        // 3중 우회 Fetch 로직
         async function fetchFlightData() {{
             const radiusNm = 54;
             const lat = homeLat.toFixed(4);
@@ -228,11 +255,11 @@ radar_html = f"""
                             break; 
                         }}
                     }}
-                }} catch (e) {{ console.log("Fetch failed:", url); }}
+                }} catch (e) {{ }}
             }}
 
             if (!success) {{
-                document.getElementById('tel-count').innerText = "API Blocked / Server Down";
+                document.getElementById('tel-count').innerText = "API Blocked";
                 document.getElementById('tel-count').style.color = "#e74c3c";
                 return;
             }}
@@ -240,10 +267,10 @@ radar_html = f"""
             const planes = data.ac || [];
             
             if (planes.length === 0) {{
-                document.getElementById('tel-count').innerText = "0 planes (No traffic)";
-                document.getElementById('tel-count').style.color = "#7f8c8d";
+                document.getElementById('tel-count').innerText = "0 planes";
+                document.getElementById('tel-count').style.color = "#bdc3c7";
             }} else {{
-                document.getElementById('tel-count').innerText = `${{planes.length}} planes OK`;
+                document.getElementById('tel-count').innerText = `${{planes.length}} planes`;
                 document.getElementById('tel-count').style.color = "#2ecc71";
             }}
 
@@ -305,7 +332,7 @@ radar_html = f"""
                     m.bindTooltip(`${{callsign}} (${{alt.toLocaleString()}} ft)`, {{ direction: 'top' }});
                     m.on('click', () => {{
                         selectedIcao = icao;
-                        showTelemetry(hist[hist.length - 1], status.text);
+                        showTelemetry(hist[hist.length - 1], status.text, status.color);
                     }});
                     markers[icao] = m;
                 }}
@@ -318,7 +345,7 @@ radar_html = f"""
                     polylines[icao] = L.polyline(latlngs, {{ color: status.color, weight: 2.5, opacity: 0.8 }}).addTo(map);
                 }}
 
-                if (selectedIcao === icao) {{ showTelemetry(hist[hist.length - 1], status.text); }}
+                if (selectedIcao === icao) {{ showTelemetry(hist[hist.length - 1], status.text, status.color); }}
             }});
 
             Object.keys(markers).forEach(icao => {{
@@ -332,12 +359,15 @@ radar_html = f"""
             }});
         }}
 
-        function showTelemetry(latest, statusText) {{
+        // 하단 패널에 선택한 비행기 정보 표출
+        function showTelemetry(latest, statusText, color) {{
             document.getElementById('tel-callsign').innerText = latest.callsign;
+            document.getElementById('tel-callsign').style.color = color;
             document.getElementById('tel-airline').innerText = latest.airline;
             document.getElementById('tel-alt').innerText = `${{latest.alt.toLocaleString()}} ft`;
             document.getElementById('tel-spd').innerText = `${{Math.round(latest.spd)}} kts`;
             document.getElementById('tel-status').innerText = statusText;
+            document.getElementById('tel-status').style.color = color;
         }}
 
         function relocateHomePoint(newLat, newLon) {{
@@ -350,7 +380,14 @@ radar_html = f"""
             Object.values(markers).forEach(m => map.removeLayer(m));
             Object.values(polylines).forEach(p => map.removeLayer(p));
             markers = {{}}; polylines = {{}}; flightHistory = {{}}; selectedIcao = null;
-            document.getElementById('tel-callsign').innerText = 'Scanning new area...';
+            
+            document.getElementById('tel-callsign').innerText = 'Scanning...';
+            document.getElementById('tel-callsign').style.color = '#e74c3c';
+            document.getElementById('tel-airline').innerText = '';
+            document.getElementById('tel-alt').innerText = '-';
+            document.getElementById('tel-spd').innerText = '-';
+            document.getElementById('tel-status').innerText = '-';
+            
             fetchFlightData();
         }}
 
@@ -372,4 +409,5 @@ radar_html = f"""
 </html>
 """
 
-components.html(radar_html, height=800, scrolling=False)
+# 전체 창 크기를 꽉 채우도록 높이 설정
+components.html(radar_html, height=850, scrolling=False)

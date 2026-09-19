@@ -267,19 +267,23 @@ radar_base_html = f"""
             white-space: nowrap; pointer-events: none; opacity: 0.9; letter-spacing: 0.3px;
         }}
 
-        /* Y711 / Y722 항로 뱃지 스타일 */
+        /* 항로 진행 방향 정렬 뱃지 컨테이너 및 스타일 */
+        .airway-badge-container {{
+            width: 140px; height: 20px; display: flex; align-items: center; justify-content: center;
+            pointer-events: none;
+        }}
         .airway-badge {{
             font-size: 9px !important; font-weight: 800 !important;
-            letter-spacing: 0.5px; opacity: 0.85;
-            padding: 2px 6px !important; border-radius: 4px !important;
-            pointer-events: none !important;
+            letter-spacing: 0.5px; opacity: 0.9;
+            padding: 2px 7px !important; border-radius: 4px !important;
+            white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }}
         .airway-badge-y711 {{
-            color: #2b6cb0 !important; background: rgba(235, 248, 255, 0.85) !important;
+            color: #2b6cb0 !important; background: rgba(235, 248, 255, 0.92) !important;
             border: 1px solid #90cdf4 !important;
         }}
         .airway-badge-y722 {{
-            color: #234e52 !important; background: rgba(230, 255, 250, 0.85) !important;
+            color: #234e52 !important; background: rgba(230, 255, 250, 0.92) !important;
             border: 1px solid #81e6d9 !important;
         }}
     </style>
@@ -353,19 +357,21 @@ radar_base_html = f"""
             opacity: 0.65
         }}).addTo(permanentFixLayer);
 
+        // Y711 남행 진행 방위각(~176도) 정렬 뱃지
         L.marker([36.4700, 126.8340], {{
             icon: L.divIcon({{
-                className: 'airway-badge airway-badge-y711',
-                html: 'Y711 ↓ Southbound',
-                iconSize: [110, 18],
-                iconAnchor: [55, 9]
+                className: '',
+                html: '<div class="airway-badge-container" style="transform: rotate(176deg);"><span class="airway-badge airway-badge-y711">Y711 ↓ Southbound</span></div>',
+                iconSize: [140, 20],
+                iconAnchor: [70, 10]
             }}),
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 2. Y722 (북행 편도 항로) 공인 실측 픽스 및 선분
+        // 2. Y722 (북행 편도 항로) 공인 실측 픽스 (KAMIT 추가) 및 선분
         const y722Path = [
-            {{ name: "MAKSA", pos: [35.5031, 126.9061], type: "Y722", note: "정읍 상공 (Y722 북상 합류)" }},
+            {{ name: "KAMIT", pos: [33.7039, 126.6242], type: "Y722", note: "제주 북부 해상 (Y722 북행 시발점)" }},
+            {{ name: "MAKSA", pos: [35.5031, 126.9061], type: "Y722", note: "정읍 상공 (Y722 내륙 북상)" }},
             {{ name: "ATASO", pos: [35.8956, 126.9492], type: "Y722", note: "익산 북서부" }},
             {{ name: "PEBRI", pos: [36.3864, 127.0036], type: "Y722", note: "공주/세종 서부" }},
             {{ name: "OLMEN", pos: [36.7369, 126.9911], type: "Y722/STAR", note: "아산 남서부 (수도권 진입)" }},
@@ -380,12 +386,13 @@ radar_base_html = f"""
             opacity: 0.65
         }}).addTo(permanentFixLayer);
 
+        // Y722 북행 진행 방위각(~-7도) 정렬 뱃지
         L.marker([36.4700, 127.0000], {{
             icon: L.divIcon({{
-                className: 'airway-badge airway-badge-y722',
-                html: 'Y722 ↑ Northbound',
-                iconSize: [110, 18],
-                iconAnchor: [55, 9]
+                className: '',
+                html: '<div class="airway-badge-container" style="transform: rotate(-7deg);"><span class="airway-badge airway-badge-y722">Y722 ↑ Northbound</span></div>',
+                iconSize: [140, 20],
+                iconAnchor: [70, 10]
             }}),
             interactive: false
         }}).addTo(permanentFixLayer);

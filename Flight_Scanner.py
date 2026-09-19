@@ -365,6 +365,7 @@ radar_base_html = f"""
 
         // 2. Y722 (북행 편도 항로) 공인 실측 픽스 및 선분
         const y722Path = [
+            {{ name: "KAMIT", pos: [34.253889, 126.771667], type: "Y722", note: "Y722 초입"}}
             {{ name: "MAKSA", pos: [35.5031, 126.9061], type: "Y722", note: "정읍 상공 (Y722 북상 합류)" }},
             {{ name: "ATASO", pos: [35.8956, 126.9492], type: "Y722", note: "익산 북서부" }},
             {{ name: "PEBRI", pos: [36.3864, 127.0036], type: "Y722", note: "공주/세종 서부" }},

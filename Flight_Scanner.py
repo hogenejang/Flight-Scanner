@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (반경 100km = 54nm)
+# 2. 백엔드 데이터 수집 (반경 100km = 약 54nm)
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -333,20 +333,20 @@ radar_base_html = f"""
         }}).addTo(map).bindTooltip("Home Point (100km)");
 
         // -------------------------------------------------------------
-        // 영구 고정 레이어 (Y711, Y722 항로선 및 공항별 주요 Fix)
+        // 영구 고정 레이어 (공인 eAIP 교차검증 정밀 좌표 체계)
         // -------------------------------------------------------------
         const permanentFixLayer = L.layerGroup().addTo(map);
 
-        // 1. Y711 (남행 편도 항로) 공인 실측 픽스 및 선분
+        // 1. Y711 (남행 편도 항로) 정밀 픽스 및 선분
         const y711Path = [
-            {{ name: "MONSI", pos: [37.2131, 126.8375], type: "Y711", note: "화성 비봉 (Y711 출발)" }},
-            {{ name: "BULTI", pos: [36.7228, 126.8250], type: "Y711", note: "아산/예산 경계" }},
-            {{ name: "MEKIL", pos: [36.5561, 126.8314], type: "Y711", note: "청양 북동부" }},
-            {{ name: "GONAX", pos: [36.3864, 126.8378], type: "Y711", note: "보령/부여" }},
-            {{ name: "BEDES", pos: [36.1514, 126.8122], type: "Y711", note: "서천/군산 경계" }},
-            {{ name: "ELPOS", pos: [35.9028, 126.7853], type: "Y711", note: "김제 서부" }},
-            {{ name: "MANGI", pos: [35.5031, 126.7422], type: "Y711", note: "고창/영광 (제주 STAR 전초)" }},
-            {{ name: "DOTOL", pos: [34.2543, 126.6102], type: "Y711/STAR", note: "완도 남쪽 해상 (제주 접근)" }}
+            {{ name: "MONSI", pos: [37.213056, 126.837500], type: "Y711", note: "화성 비봉 (Y711 출발)" }},
+            {{ name: "BULTI", pos: [36.722778, 126.825000], type: "Y711", note: "아산/예산 경계" }},
+            {{ name: "MEKIL", pos: [36.556111, 126.831389], type: "Y711", note: "청양 북동부" }},
+            {{ name: "GONAX", pos: [36.386389, 126.837778], type: "Y711", note: "부여 은산면" }},
+            {{ name: "BEDES", pos: [36.151389, 126.812222], type: "Y711", note: "서천/군산 경계" }},
+            {{ name: "ELPOS", pos: [35.902778, 126.785278], type: "Y711", note: "김제 서부" }},
+            {{ name: "MANGI", pos: [35.503056, 126.742222], type: "Y711", note: "고창읍 상공 (제주 STAR 전초)" }},
+            {{ name: "DOTOL", pos: [34.254278, 126.610167], type: "Y711/STAR", note: "완도 청산도 서남 해상 (Y711 종착)" }}
         ];
 
         L.polyline(y711Path.map(f => f.pos), {{
@@ -356,7 +356,7 @@ radar_base_html = f"""
             opacity: 0.7
         }}).addTo(permanentFixLayer);
 
-        // Y711 심플 수평 라벨 (충남 중부 및 전북 상공 2개소 배치)
+        // Y711 심플 수평 뱃지
         L.marker([36.4700, 126.8340], {{
             icon: L.divIcon({{
                 className: '',
@@ -377,15 +377,15 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 2. Y722 (북행 편도 항로) 공인 정밀 픽스 (KAMIT 정밀 좌표 반영) 및 선분
+        // 2. Y722 (북행 편도 항로) 정밀 픽스 (KAMIT 실측 정밀값 반영) 및 선분
         const y722Path = [
-            {{ name: "KAMIT", pos: [34.253889, 126.771667], type: "Y722", note: "완도 남동 해상 (Y722 북행 시발점)" }},
-            {{ name: "MAKSA", pos: [35.5031, 126.9061], type: "Y722", note: "정읍 상공 (Y722 내륙 북상)" }},
-            {{ name: "ATASO", pos: [35.8956, 126.9492], type: "Y722", note: "익산 북서부" }},
-            {{ name: "PEBRI", pos: [36.3864, 127.0036], type: "Y722", note: "공주/세종 서부" }},
-            {{ name: "OLMEN", pos: [36.7369, 126.9911], type: "Y722/STAR", note: "아산 남서부 (수도권 진입)" }},
-            {{ name: "SOT", pos: [37.0944, 127.0317], type: "Y722/VOR", note: "평택 송탄 VORTAC" }},
-            {{ name: "SEL", pos: [37.4136, 126.9283], type: "Y722/VOR", note: "안양 VOR (수도권 종착)" }}
+            {{ name: "KAMIT", pos: [34.253889, 126.771667], type: "Y722", note: "완도 여서도 북동 해상 (DOTOL 평행 분리 / Y722 시발)" }},
+            {{ name: "MAKSA", pos: [35.503056, 126.906111], type: "Y722", note: "정읍 신태인 (Y722 북상 합류)" }},
+            {{ name: "ATASO", pos: [35.895556, 126.949167], type: "Y722", note: "익산 춘포면" }},
+            {{ name: "PEBRI", pos: [36.386389, 127.003611], type: "Y722", note: "공주/세종 서부" }},
+            {{ name: "OLMEN", pos: [36.736944, 126.991111], type: "Y722/STAR", note: "아산 배방읍 (수도권 진입)" }},
+            {{ name: "SOT", pos: [37.090500, 127.028944], type: "Y722/VOR", note: "평택 송탄 VORTAC" }},
+            {{ name: "SEL", pos: [37.413694, 126.928444], type: "Y722/VOR", note: "안양 관악산 VOR/DME (수도권 종착)" }}
         ];
 
         L.polyline(y722Path.map(f => f.pos), {{
@@ -395,7 +395,7 @@ radar_base_html = f"""
             opacity: 0.7
         }}).addTo(permanentFixLayer);
 
-        // Y722 심플 수평 라벨 (충남 동부 및 전북 상공 2개소 배치)
+        // Y722 심플 수평 뱃지
         L.marker([36.4700, 127.0000], {{
             icon: L.divIcon({{
                 className: '',
@@ -416,41 +416,41 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 3. 주요 공항 터미널 픽스 (인천, 김포, 김해, 제주)
+        // 3. 주요 공항 터미널 픽스 (AIP 교차검증 정밀 WGS-84)
         const terminalFixes = [
             // [인천 RKSI]
-            {{ name: "BOPTA", pos: [36.7350, 126.6161], type: "SID", note: "인천 남서 출발 전이점" }},
-            {{ name: "NOUTE", pos: [37.2189, 125.8672], type: "SID", note: "인천 서해 출역점 (A593/Y644)" }},
-            {{ name: "EGOBA", pos: [37.6694, 126.8856], type: "SID", note: "인천 북동/동해 전이점" }},
-            {{ name: "KARAS", pos: [37.0789, 126.0847], type: "STAR", note: "인천 남서 해상 진입점" }},
-            {{ name: "REKTO", pos: [37.2728, 126.1558], type: "IAF", note: "인천 RWY 33/34 진입 IAF" }},
-            {{ name: "OSPUR", pos: [37.6833, 126.2667], type: "IAF", note: "인천 RWY 15/16 진입 IAF" }},
-            {{ name: "DANAN", pos: [37.6017, 126.3350], type: "IF", note: "인천 RWY 15L/R 중간접근점" }},
+            {{ name: "BOPTA", pos: [37.073333, 126.241667], type: "SID", note: "서산 북서 대산반도 외해 (인천 남서 SID)" }},
+            {{ name: "NOUTE", pos: [37.216667, 125.866667], type: "SID", note: "굴업도 서쪽 서해 외해 (A593 출역점)" }},
+            {{ name: "EGOBA", pos: [37.666667, 126.883333], type: "SID", note: "고양 삼송 북측 (북동 SID 전이)" }},
+            {{ name: "KARAS", pos: [37.150000, 126.083333], type: "STAR", note: "덕적도 남서 해상 (인천 서해남부 진입)" }},
+            {{ name: "REKTO", pos: [37.272778, 126.155833], type: "IAF", note: "덕적도 동측 해상 (RWY 33/34 진입 IAF)" }},
+            {{ name: "OSPUR", pos: [37.683333, 126.266667], type: "IAF", note: "강화도 서측 해상 (RWY 15/16 진입 IAF)" }},
+            {{ name: "DANAN", pos: [37.601667, 126.335000], type: "IF", note: "인천 신도 북단 상공 (RWY 15L/R IF)" }},
 
             // [김포 RKSS]
-            {{ name: "SOTSU", pos: [37.3000, 126.9000], type: "SID", note: "김포 남쪽 출발 회랑 픽스" }},
-            {{ name: "BULLS", pos: [37.2742, 127.3556], type: "STAR", note: "김포 남동축 진입 픽스" }},
-            {{ name: "YAGI", pos: [37.5833, 126.5500], type: "STAR", note: "김포 서부 진입 픽스" }},
-            {{ name: "SS801", pos: [37.4850, 126.8650], type: "IF", note: "김포 RWY 32 중간접근점" }},
+            {{ name: "SOTSU", pos: [37.300000, 126.900000], type: "SID", note: "군포/안산 경계 (남행 회랑 분기점)" }},
+            {{ name: "BULLS", pos: [37.274167, 127.355556], type: "STAR", note: "이천 마장면 상공 (수도권 남동 진입 STAR)" }},
+            {{ name: "YAGI", pos: [37.583333, 126.550000], type: "STAR", note: "청라국제도시 북측 (김포 서부 STAR)" }},
+            {{ name: "SS801", pos: [37.485000, 126.865000], type: "IF", note: "광명/구로 경계 (김포 32L/R IF)" }},
 
             // [김해 RKPK]
-            {{ name: "PSN", pos: [35.1728, 128.9392], type: "VOR/NDB", note: "부산 VOR/DME" }},
-            {{ name: "KAPLI", pos: [35.0483, 129.4183], type: "SID", note: "김해 동해/일본 방면 출역점" }},
-            {{ name: "BUSAN", pos: [34.9083, 128.9867], type: "SID", note: "김해 남해안 출발 전이점" }},
-            {{ name: "TOPAX", pos: [35.3400, 128.4900], type: "STAR", note: "김해 북서 내륙 진입점" }},
-            {{ name: "GAYHA", pos: [34.7833, 128.8000], type: "STAR", note: "김해 남해 해상 진입점" }},
-            {{ name: "PK701", pos: [35.0500, 128.9392], type: "IF", note: "김해 RWY 36 최종 정렬 IF" }},
+            {{ name: "PSN", pos: [35.173139, 128.939028], type: "VOR/NDB", note: "김해공항 구내 부산 VOR/DME" }},
+            {{ name: "KAPLI", pos: [35.048333, 129.418333], type: "SID", note: "영도구 동남 외해 (일본/태평양 방면 출역)" }},
+            {{ name: "BUSAN", pos: [34.908333, 128.986667], type: "SID", note: "거제도 동남 해상 (남해안 출발 전이점)" }},
+            {{ name: "TOPAX", pos: [35.340000, 128.490000], type: "STAR", note: "창녕 남지읍 상공 (김해 북서 진입 STAR)" }},
+            {{ name: "GAYHA", pos: [34.783333, 128.800000], type: "STAR", note: "거제시 남부 해상 (김해 남해안 진입 STAR)" }},
+            {{ name: "PK701", pos: [35.050000, 128.939167], type: "IF", note: "다대포 외해 (김해 RWY 36 정렬 IF)" }},
 
             // [제주 RKPC]
-            {{ name: "TAMNA", pos: [33.6669, 126.3478], type: "SID", note: "제주 북서 출발 시발점" }},
-            {{ name: "MAKET", pos: [33.9144, 127.3314], type: "SID", note: "제주 남동 태평양 방면 출발점" }},
-            {{ name: "SOSDO", pos: [33.8058, 126.6347], type: "STAR", note: "내륙-제주 북부 진입 주력 픽스" }},
-            {{ name: "SARAS", pos: [33.4500, 126.8500], type: "STAR", note: "제주 동부 진입 픽스" }},
-            {{ name: "PABSO", pos: [33.4933, 126.4300], type: "IAF/IF", note: "제주 RWY 07 계기접근 픽스" }},
-            {{ name: "LAVAR", pos: [33.5283, 126.5567], type: "IAF/IF", note: "제주 RWY 25 계기접근 픽스" }}
+            {{ name: "TAMNA", pos: [33.666944, 126.347778], type: "SID", note: "제주 한경면 북서 해상 (제주 북서 출발)" }},
+            {{ name: "MAKET", pos: [33.914444, 127.331389], type: "SID", note: "여수시 남동 해상 (제주 남동 태평양 SID)" }},
+            {{ name: "SOSDO", pos: [33.805833, 126.634722], type: "STAR", note: "추자도 남동 해상 (내륙발 제주 주력 도착점)" }},
+            {{ name: "SARAS", pos: [33.450000, 126.850000], type: "STAR", note: "성산일출봉 동측 해상 (동부 진입 STAR)" }},
+            {{ name: "PABSO", pos: [33.493333, 126.430000], type: "IAF/IF", note: "제주 애월읍 앞 해상 (RWY 07 계기접근)" }},
+            {{ name: "LAVAR", pos: [33.528333, 126.556667], type: "IAF/IF", note: "제주 조천읍 앞 해상 (RWY 25 계기접근)" }}
         ];
 
-        // 픽스 중복 방지 병합 및 렌더링
+        // 중복 방지 병합 및 영구 픽스 렌더링
         const allPermanentFixes = [...y711Path, ...y722Path, ...terminalFixes];
         const registeredFixes = new Set();
 

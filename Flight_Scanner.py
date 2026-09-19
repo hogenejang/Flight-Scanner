@@ -471,12 +471,12 @@ radar_base_html = f"""
         let polylineGroups = {{}};
         let selectedIcao = null;
 
-        // 성능 최적화: 4단계 청크별 스타일 (오래됨 -> 최신)
+        // 시인성 강화: 4단계 청크별 스타일 (오래됨 -> 최신)
         const CHUNK_CONFIGS = [
-            {{ opacity: 0.15, weight: 1.5 }},
-            {{ opacity: 0.35, weight: 2.0 }},
-            {{ opacity: 0.65, weight: 2.5 }},
-            {{ opacity: 0.95, weight: 3.0 }}
+            {{ opacity: 0.35, weight: 2.5 }},
+            {{ opacity: 0.60, weight: 3.5 }},
+            {{ opacity: 0.85, weight: 4.5 }},
+            {{ opacity: 1.00, weight: 5.5 }}
         ];
 
         function getIcon(heading, color) {{
@@ -655,7 +655,7 @@ radar_base_html = f"""
                 }}
 
                 // -------------------------------------------------------------
-                // 4단계 청킹 기반 페이드아웃 항적선 렌더링
+                // 4단계 청킹 기반 페이드아웃 항적선 렌더링 (시인성 강화)
                 // -------------------------------------------------------------
                 if (!polylineGroups[icao]) {{
                     polylineGroups[icao] = [null, null, null, null];
@@ -673,8 +673,8 @@ radar_base_html = f"""
 
                         if (chunkPts.length >= 2) {{
                             const conf = CHUNK_CONFIGS[c];
-                            const lineWeight = isSelected ? conf.weight + 1.2 : conf.weight;
-                            const lineOpacity = isSelected ? Math.min(1.0, conf.opacity + 0.15) : conf.opacity;
+                            const lineWeight = isSelected ? conf.weight + 2.0 : conf.weight;
+                            const lineOpacity = isSelected ? 1.0 : conf.opacity;
 
                             if (polylineGroups[icao][c]) {{
                                 polylineGroups[icao][c].setLatLngs(chunkPts);

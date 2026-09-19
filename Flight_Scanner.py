@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (반경 100km = 약 54nm)
+# 2. 백엔드 데이터 수집 (반경 100km = 54nm)
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -267,24 +267,23 @@ radar_base_html = f"""
             white-space: nowrap; pointer-events: none; opacity: 0.9; letter-spacing: 0.3px;
         }}
 
-        /* 항로 진행 방향 정렬 뱃지 컨테이너 및 스타일 */
-        .airway-badge-container {{
-            width: 140px; height: 20px; display: flex; align-items: center; justify-content: center;
-            pointer-events: none;
-        }}
-        .airway-badge {{
-            font-size: 9px !important; font-weight: 800 !important;
-            letter-spacing: 0.5px; opacity: 0.9;
+        /* 심플한 수평 항로 뱃지 스타일 */
+        .airway-tag-badge {{
+            display: inline-block !important;
+            font-size: 10px !important; font-weight: 800 !important;
+            letter-spacing: 0.3px !important;
             padding: 2px 7px !important; border-radius: 4px !important;
-            white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            white-space: nowrap !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.18) !important;
+            pointer-events: none !important;
         }}
-        .airway-badge-y711 {{
-            color: #2b6cb0 !important; background: rgba(235, 248, 255, 0.92) !important;
-            border: 1px solid #90cdf4 !important;
+        .airway-tag-y711 {{
+            color: #2b6cb0 !important; background: rgba(255, 255, 255, 0.94) !important;
+            border: 1.5px solid #63b3ed !important;
         }}
-        .airway-badge-y722 {{
-            color: #234e52 !important; background: rgba(230, 255, 250, 0.92) !important;
-            border: 1px solid #81e6d9 !important;
+        .airway-tag-y722 {{
+            color: #234e52 !important; background: rgba(255, 255, 255, 0.94) !important;
+            border: 1.5px solid #4fd1c5 !important;
         }}
     </style>
 </head>
@@ -352,25 +351,35 @@ radar_base_html = f"""
 
         L.polyline(y711Path.map(f => f.pos), {{
             color: '#3182ce',
-            weight: 2,
+            weight: 2.2,
             dashArray: '6, 6',
-            opacity: 0.65
+            opacity: 0.7
         }}).addTo(permanentFixLayer);
 
-        // Y711 남행 진행 방위각(~176도) 정렬 뱃지
+        // Y711 심플 수평 라벨 (충남 중부 및 전북 상공 2개소 배치)
         L.marker([36.4700, 126.8340], {{
             icon: L.divIcon({{
                 className: '',
-                html: '<div class="airway-badge-container" style="transform: rotate(176deg);"><span class="airway-badge airway-badge-y711">Y711 ↓ Southbound</span></div>',
-                iconSize: [140, 20],
-                iconAnchor: [70, 10]
+                html: '<span class="airway-tag-badge airway-tag-y711">Y711 ↓ Southbound</span>',
+                iconSize: [120, 20],
+                iconAnchor: [60, 10]
             }}),
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 2. Y722 (북행 편도 항로) 공인 실측 픽스 (KAMIT 추가) 및 선분
+        L.marker([35.7000, 126.7600], {{
+            icon: L.divIcon({{
+                className: '',
+                html: '<span class="airway-tag-badge airway-tag-y711">Y711 ↓</span>',
+                iconSize: [60, 20],
+                iconAnchor: [30, 10]
+            }}),
+            interactive: false
+        }}).addTo(permanentFixLayer);
+
+        // 2. Y722 (북행 편도 항로) 공인 정밀 픽스 (KAMIT 정밀 좌표 반영) 및 선분
         const y722Path = [
-            {{ name: "KAMIT", pos: [33.7039, 126.6242], type: "Y722", note: "제주 북부 해상 (Y722 북행 시발점)" }},
+            {{ name: "KAMIT", pos: [34.7672, 126.9136], type: "Y722", note: "전남 장흥/보성 남부 해상 (Y722 북행 시발점)" }},
             {{ name: "MAKSA", pos: [35.5031, 126.9061], type: "Y722", note: "정읍 상공 (Y722 내륙 북상)" }},
             {{ name: "ATASO", pos: [35.8956, 126.9492], type: "Y722", note: "익산 북서부" }},
             {{ name: "PEBRI", pos: [36.3864, 127.0036], type: "Y722", note: "공주/세종 서부" }},
@@ -381,18 +390,28 @@ radar_base_html = f"""
 
         L.polyline(y722Path.map(f => f.pos), {{
             color: '#285e61',
-            weight: 2,
+            weight: 2.2,
             dashArray: '6, 6',
-            opacity: 0.65
+            opacity: 0.7
         }}).addTo(permanentFixLayer);
 
-        // Y722 북행 진행 방위각(~-7도) 정렬 뱃지
+        // Y722 심플 수평 라벨 (충남 동부 및 전북 상공 2개소 배치)
         L.marker([36.4700, 127.0000], {{
             icon: L.divIcon({{
                 className: '',
-                html: '<div class="airway-badge-container" style="transform: rotate(-7deg);"><span class="airway-badge airway-badge-y722">Y722 ↑ Northbound</span></div>',
-                iconSize: [140, 20],
-                iconAnchor: [70, 10]
+                html: '<span class="airway-tag-badge airway-tag-y722">Y722 ↑ Northbound</span>',
+                iconSize: [120, 20],
+                iconAnchor: [60, 10]
+            }}),
+            interactive: false
+        }}).addTo(permanentFixLayer);
+
+        L.marker([35.7000, 126.9300], {{
+            icon: L.divIcon({{
+                className: '',
+                html: '<span class="airway-tag-badge airway-tag-y722">Y722 ↑</span>',
+                iconSize: [60, 20],
+                iconAnchor: [30, 10]
             }}),
             interactive: false
         }}).addTo(permanentFixLayer);
@@ -431,7 +450,7 @@ radar_base_html = f"""
             {{ name: "LAVAR", pos: [33.5283, 126.5567], type: "IAF/IF", note: "제주 RWY 25 계기접근 픽스" }}
         ];
 
-        // 중복 방지 병합 및 픽스 마커 렌더링
+        // 픽스 중복 방지 병합 및 렌더링
         const allPermanentFixes = [...y711Path, ...y722Path, ...terminalFixes];
         const registeredFixes = new Set();
 

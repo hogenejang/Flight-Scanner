@@ -163,7 +163,7 @@ def fetch_flight_data(lat, lon):
 
     return [], "No Signal"
 
-# 3. 홈포인트 설정 (기본값: 37°09'05.67"N, 126°44'34.96"E)
+# 3. 홈포인트 설정
 if "home_coords" not in st.session_state:
     st.session_state.home_coords = [37.151575, 126.743044]
 
@@ -337,15 +337,15 @@ radar_base_html = f"""
         // -------------------------------------------------------------
         const permanentFixLayer = L.layerGroup().addTo(map);
 
-        // 1. Y711 (남행: BULTI ~ DOTOL 구간만 선분 렌더링)
+        // 1. Y711 (남행: BULTI ~ DOTOL 구간 선분)
         const y711Path = [
-            {{ name: "BULTI", pos: [36.722778, 126.825000], type: "Y711", note: "아산/예산 경계 (Y711 구간 시발점)" }},
+            {{ name: "BULTI", pos: [36.722778, 126.825000], type: "Y711", note: "아산/예산 경계 (Y711 시발점)" }},
             {{ name: "MEKIL", pos: [36.556111, 126.831389], type: "Y711", note: "청양 북동부" }},
             {{ name: "GONAX", pos: [36.386389, 126.837778], type: "Y711", note: "부여 은산면" }},
             {{ name: "BEDES", pos: [36.151389, 126.812222], type: "Y711", note: "서천/군산 경계" }},
             {{ name: "ELPOS", pos: [35.902778, 126.785278], type: "Y711", note: "김제 서부" }},
             {{ name: "MANGI", pos: [35.503056, 126.742222], type: "Y711", note: "고창읍 상공" }},
-            {{ name: "DOTOL", pos: [34.254278, 126.610167], type: "Y711/STAR", note: "완도 청산도 서남 해상 (Y711 구간 종착점)" }}
+            {{ name: "DOTOL", pos: [34.254278, 126.610167], type: "Y711/STAR", note: "완도 청산도 서남 해상 (Y711 종착점)" }}
         ];
 
         L.polyline(y711Path.map(f => f.pos), {{
@@ -355,7 +355,6 @@ radar_base_html = f"""
             opacity: 0.7
         }}).addTo(permanentFixLayer);
 
-        // Y711 심플 수평 뱃지 (항로명 단독)
         L.marker([36.4700, 126.8340], {{
             icon: L.divIcon({{
                 className: '',
@@ -366,13 +365,13 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 2. Y722 (북행: KAMIT ~ OLMEN 구간만 선분 렌더링)
+        // 2. Y722 (북행: KAMIT ~ OLMEN 구간 선분)
         const y722Path = [
-            {{ name: "KAMIT", pos: [34.253889, 126.771667], type: "Y722", note: "완도 여서도 북동 해상 (Y722 구간 시발점)" }},
+            {{ name: "KAMIT", pos: [34.253889, 126.771667], type: "Y722", note: "완도 여서도 북동 해상 (Y722 시발점)" }},
             {{ name: "MAKSA", pos: [35.503056, 126.906111], type: "Y722", note: "정읍 신태인" }},
             {{ name: "ATASO", pos: [35.895556, 126.949167], type: "Y722", note: "익산 춘포면" }},
             {{ name: "PEBRI", pos: [36.386389, 127.003611], type: "Y722", note: "공주/세종 서부" }},
-            {{ name: "OLMEN", pos: [36.736944, 126.991111], type: "Y722/STAR", note: "아산 배방읍 (Y722 구간 종착점)" }}
+            {{ name: "OLMEN", pos: [36.736944, 126.991111], type: "Y722/STAR", note: "아산 배방읍 (Y722 종착점)" }}
         ];
 
         L.polyline(y722Path.map(f => f.pos), {{
@@ -382,7 +381,6 @@ radar_base_html = f"""
             opacity: 0.7
         }}).addTo(permanentFixLayer);
 
-        // Y722 심플 수평 뱃지 (항로명 단독)
         L.marker([36.4700, 127.0000], {{
             icon: L.divIcon({{
                 className: '',
@@ -393,9 +391,8 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 3. 주요 공항 터미널 및 신규 교차검증 픽스 (POLEG, POSAN, OSPOT, KALMA, EGOBA, BOGAN, GOGET, SONGTAN 등)
+        // 3. 주요 터미널 및 신규 교차검증 픽스
         const terminalFixes = [
-            // [신규 교차검증 픽스 및 항행시설]
             {{ name: "POLEG", pos: [37.213611, 126.993056], type: "FIX", note: "수원 영통 / 화성 반월 상공" }},
             {{ name: "POSAN", pos: [36.937500, 127.221111], type: "FIX", note: "천안 동남구 북면 / 진천 경계" }},
             {{ name: "OSPOT", pos: [36.838333, 127.348611], type: "SID/FIX", note: "청주 오창읍 / 진천 초평 경계" }},
@@ -404,8 +401,6 @@ radar_base_html = f"""
             {{ name: "BOGAN", pos: [37.211389, 126.470000], type: "STAR/SID", note: "화성 제부도 남측 해상" }},
             {{ name: "GOGET", pos: [37.656667, 126.991111], type: "STAR", note: "서울 북한산/도봉산 인근 상공" }},
             {{ name: "SONGTAN", pos: [37.090500, 127.028944], type: "VOR/DME", note: "평택 송탄 오산기지 VORTAC (SOT)" }},
-
-            // [기타 수도권 및 공역 연계 픽스]
             {{ name: "MONSI", pos: [37.213056, 126.837500], type: "FIX", note: "화성 비봉 상공" }},
             {{ name: "SEL", pos: [37.413694, 126.928444], type: "VOR/DME", note: "안양 관악산 VOR/DME" }},
             {{ name: "BOPTA", pos: [37.073333, 126.241667], type: "SID", note: "서산 북서 대산반도 외해 (인천 남서 SID)" }},
@@ -418,16 +413,12 @@ radar_base_html = f"""
             {{ name: "BULLS", pos: [37.274167, 127.355556], type: "STAR", note: "이천 마장면 상공 (수도권 남동 진입 STAR)" }},
             {{ name: "YAGI", pos: [37.583333, 126.550000], type: "STAR", note: "청라국제도시 북측 (김포 서부 STAR)" }},
             {{ name: "SS801", pos: [37.485000, 126.865000], type: "IF", note: "광명/구로 경계 (김포 32L/R IF)" }},
-
-            // [김해 RKPK]
             {{ name: "PSN", pos: [35.173139, 128.939028], type: "VOR/NDB", note: "김해공항 구내 부산 VOR/DME" }},
             {{ name: "KAPLI", pos: [35.048333, 129.418333], type: "SID", note: "영도구 동남 외해 (일본/태평양 방면 출역)" }},
             {{ name: "BUSAN", pos: [34.908333, 128.986667], type: "SID", note: "거제도 동남 해상 (남해안 출발 전이점)" }},
             {{ name: "TOPAX", pos: [35.340000, 128.490000], type: "STAR", note: "창녕 남지읍 상공 (김해 북서 진입 STAR)" }},
             {{ name: "GAYHA", pos: [34.783333, 128.800000], type: "STAR", note: "거제시 남부 해상 (김해 남해안 진입 STAR)" }},
             {{ name: "PK701", pos: [35.050000, 128.939167], type: "IF", note: "다대포 외해 (김해 RWY 36 정렬 IF)" }},
-
-            // [제주 RKPC]
             {{ name: "TAMNA", pos: [33.666944, 126.347778], type: "SID", note: "제주 한경면 북서 해상 (제주 북서 출발)" }},
             {{ name: "MAKET", pos: [33.914444, 127.331389], type: "SID", note: "여수시 남동 해상 (제주 남동 태평양 SID)" }},
             {{ name: "SOSDO", pos: [33.805833, 126.634722], type: "STAR", note: "추자도 남동 해상 (내륙발 제주 주력 도착점)" }},
@@ -436,7 +427,6 @@ radar_base_html = f"""
             {{ name: "LAVAR", pos: [33.528333, 126.556667], type: "IAF/IF", note: "제주 조천읍 앞 해상 (RWY 25 계기접근)" }}
         ];
 
-        // 픽스 중복 방지 병합 및 렌더링
         const allPermanentFixes = [...y711Path, ...y722Path, ...terminalFixes];
         const registeredFixes = new Set();
 
@@ -474,12 +464,20 @@ radar_base_html = f"""
         }});
 
         // -------------------------------------------------------------
-        // 동적 항공기 추적 엔진 (permanentFixLayer와 분리된 관리)
+        // 동적 항공기 추적 및 구간별(Chunking) 고성능 페이드아웃 엔진
         // -------------------------------------------------------------
         let flightHistory = {{}};
         let markers = {{}};
-        let polylines = {{}};
+        let polylineGroups = {{}};
         let selectedIcao = null;
+
+        // 성능 최적화: 4단계 청크별 스타일 (오래됨 -> 최신)
+        const CHUNK_CONFIGS = [
+            {{ opacity: 0.15, weight: 1.5 }},
+            {{ opacity: 0.35, weight: 2.0 }},
+            {{ opacity: 0.65, weight: 2.5 }},
+            {{ opacity: 0.95, weight: 3.0 }}
+        ];
 
         function getIcon(heading, color) {{
             const html = `<div class="icon-wrapper" style="transform: rotate(${{heading}}deg);"><svg width="24" height="24" viewBox="0 0 20 20"><polygon points="10,0 2,20 10,15 18,20" fill="${{color}}" stroke="#1e272c" stroke-width="1.5" /></svg></div>`;
@@ -656,26 +654,59 @@ radar_base_html = f"""
                     markers[icao].bindTooltip(`<b>${{p.callsign}}</b><br>${{Math.round(p.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
                 }}
 
-                const latlngs = hist.map(pt => [pt.lat, pt.lon]);
-                if (polylines[icao]) {{
-                    polylines[icao].setLatLngs(latlngs);
-                    polylines[icao].setStyle({{ color: statusObj.color, weight: isSelected ? 4 : 3 }});
-                }} else {{
-                    polylines[icao] = L.polyline(latlngs, {{
-                        color: statusObj.color,
-                        weight: isSelected ? 4 : 3,
-                        opacity: isSelected ? 0.9 : 0.75
-                    }}).addTo(map);
+                // -------------------------------------------------------------
+                // 4단계 청킹 기반 페이드아웃 항적선 렌더링
+                // -------------------------------------------------------------
+                if (!polylineGroups[icao]) {{
+                    polylineGroups[icao] = [null, null, null, null];
+                }}
+
+                const pts = hist.map(pt => [pt.lat, pt.lon]);
+                const totalPts = pts.length;
+
+                if (totalPts >= 2) {{
+                    const chunkSize = Math.max(1, Math.floor(totalPts / 4));
+                    for (let c = 0; c < 4; c++) {{
+                        const startIdx = Math.min(c * chunkSize, totalPts - 1);
+                        let endIdx = (c === 3) ? totalPts : Math.min((c + 1) * chunkSize + 1, totalPts);
+                        const chunkPts = pts.slice(startIdx, endIdx);
+
+                        if (chunkPts.length >= 2) {{
+                            const conf = CHUNK_CONFIGS[c];
+                            const lineWeight = isSelected ? conf.weight + 1.2 : conf.weight;
+                            const lineOpacity = isSelected ? Math.min(1.0, conf.opacity + 0.15) : conf.opacity;
+
+                            if (polylineGroups[icao][c]) {{
+                                polylineGroups[icao][c].setLatLngs(chunkPts);
+                                polylineGroups[icao][c].setStyle({{
+                                    color: statusObj.color,
+                                    weight: lineWeight,
+                                    opacity: lineOpacity
+                                }});
+                            }} else {{
+                                polylineGroups[icao][c] = L.polyline(chunkPts, {{
+                                    color: statusObj.color,
+                                    weight: lineWeight,
+                                    opacity: lineOpacity
+                                }}).addTo(map);
+                            }}
+                        }} else if (polylineGroups[icao][c]) {{
+                            map.removeLayer(polylineGroups[icao][c]);
+                            polylineGroups[icao][c] = null;
+                        }}
+                    }}
                 }}
             }});
 
-            // 100km 이탈 기체는 markers 딕셔너리만 소거 (permanentFixLayer는 영구 유지)
+            // 100km 이탈 기체 정리
             Object.keys(markers).forEach(icao => {{
                 if (!currentIcaos.has(icao)) {{
                     map.removeLayer(markers[icao]);
-                    map.removeLayer(polylines[icao]);
+                    if (polylineGroups[icao]) {{
+                        polylineGroups[icao].forEach(p => {{ if (p) map.removeLayer(p); }});
+                        delete polylineGroups[icao];
+                    }}
                     delete markers[icao];
-                    delete polylines[icao];
                     delete flightHistory[icao];
                     if (selectedIcao === icao) selectedIcao = null;
                 }}
@@ -698,9 +729,11 @@ radar_base_html = f"""
             map.panTo([homeLat, homeLon]);
 
             Object.values(markers).forEach(m => map.removeLayer(m));
-            Object.values(polylines).forEach(p => map.removeLayer(p));
+            Object.values(polylineGroups).forEach(group => {{
+                group.forEach(p => {{ if (p) map.removeLayer(p); }});
+            }});
             markers = {{}};
-            polylines = {{}};
+            polylineGroups = {{}};
             flightHistory = {{}};
             selectedIcao = null;
             

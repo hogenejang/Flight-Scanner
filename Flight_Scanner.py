@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (출/도착지 및 지상접지 여부)
+# 2. 백엔드 데이터 수집
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -240,6 +240,17 @@ radar_base_html = f"""
             filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.6)); transition: transform 0.4s linear;
         }}
 
+        /* 비행 중이 아닌 지상 기체용 원형 마커 */
+        .ground-icon-wrapper {{
+            width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+        }}
+        .ground-circle-marker {{
+            width: 10px; height: 10px; background-color: #718096;
+            border-radius: 50%; border: 2px solid #ffffff;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+            transition: transform 0.2s ease;
+        }}
+
         .plane-hud-card {{
             background: rgba(255, 255, 255, 0.97) !important;
             border: 1px solid rgba(0,0,0,0.12) !important;
@@ -261,7 +272,7 @@ radar_base_html = f"""
         .card-route {{ font-weight: 800; color: #2b6cb0; }}
         .card-ground-status {{ font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }}
         .ground-air {{ background: #e6fffa; color: #234e52; }}
-        .ground-on {{ background: #feebc8; color: #7b341e; }}
+        .ground-on {{ background: #edf2f7; color: #4a5568; border: 1px solid #cbd5e0; }}
 
         .card-metrics {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px; }}
         .card-metrics div {{ display: flex; flex-direction: column; }}
@@ -316,6 +327,7 @@ radar_base_html = f"""
                 <span style="color:#2ecc71;">● 수평</span>
                 <span style="color:#f1c40f;">● 상승</span>
                 <span style="color:#3498db;">● 하강</span>
+                <span style="color:#718096;">● 지상</span>
             </div>
         </div>
         <div class="preset-bar">
@@ -419,9 +431,8 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 3. 주요 터미널 및 제주공항(RKPC) 교차검증 픽스 (Point Merge 시퀀싱 아크 포함)
+        // 3. 주요 터미널 및 제주공항(RKPC) 교차검증 픽스
         const terminalFixes = [
-            // [제주 RKPC Point Merge System (PMS) 서부 시퀀싱 아크 & IAF]
             {{ name: "BIROM", pos: [33.792778, 126.386111], type: "STAR", note: "제주 북서 해상 (추자-제주 서부 입역 픽스)" }},
             {{ name: "LIMDI", pos: [33.545000, 126.170833], type: "STAR", note: "제주 한림 서북 외해 (서부 입역 STAR)" }},
             {{ name: "PC621", pos: [33.740833, 126.224722], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 1번점" }},
@@ -435,7 +446,6 @@ radar_base_html = f"""
             {{ name: "PIMIK", pos: [33.257222, 125.980833], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 종점 (구 MEDON)" }},
             {{ name: "YUMIN", pos: [33.457222, 126.221111], type: "IAF/MP", note: "RWY 07 계기접근 Merge Point (IAF)" }},
 
-            // [제주 RKPC 기타 STAR / 접근 픽스]
             {{ name: "DOTOL", pos: [34.254278, 126.610167], type: "STAR", note: "내륙-제주 STAR 주진입 회랑점" }},
             {{ name: "PANSI", pos: [33.880000, 126.540000], type: "STAR", note: "추자-제주 북부 해상 중간 강하점" }},
             {{ name: "TIXIM", pos: [33.683333, 126.516667], type: "STAR", note: "제주 북부 접근 전이 픽스" }},
@@ -447,7 +457,6 @@ radar_base_html = f"""
             {{ name: "TAMNA", pos: [33.470833, 127.331389], type: "STAR/SID", note: "제주 동쪽 외해 (A595 항로 픽스)" }},
             {{ name: "SOSDO", pos: [33.003333, 126.459722], type: "STAR/SID", note: "제주 남단 마라도 남서 해상 (B576/Y722)" }},
 
-            // [수도권 및 기타 교차검증 픽스]
             {{ name: "POLEG", pos: [37.213611, 126.993056], type: "FIX", note: "수원 영통 / 화성 반월 상공" }},
             {{ name: "POSAN", pos: [36.937500, 127.221111], type: "FIX", note: "천안 동남구 북면 / 진천 경계" }},
             {{ name: "OSPOT", pos: [36.838333, 127.348611], type: "SID/FIX", note: "청주 오창읍 / 진천 초평 경계" }},
@@ -469,7 +478,6 @@ radar_base_html = f"""
             {{ name: "YAGI", pos: [37.583333, 126.550000], type: "STAR", note: "청라국제도시 북측 (김포 서부 STAR)" }},
             {{ name: "SS801", pos: [37.485000, 126.865000], type: "IF", note: "광명/구로 경계 (김포 32L/R IF)" }},
 
-            // [김해 RKPK]
             {{ name: "PSN", pos: [35.173139, 128.939028], type: "VOR/NDB", note: "김해공항 구내 부산 VOR/DME" }},
             {{ name: "KAPLI", pos: [35.048333, 129.418333], type: "SID", note: "영도구 동남 외해 (일본/태평양 방면 출역)" }},
             {{ name: "BUSAN", pos: [34.908333, 128.986667], type: "SID", note: "거제도 동남 해상 (남해안 출발 전이점)" }},
@@ -530,12 +538,23 @@ radar_base_html = f"""
             {{ opacity: 1.00, weight: 5.5 }}
         ];
 
+        // 1) 비행 중인 기체용 화살표 아이콘
         function getIcon(heading, color) {{
             const html = `<div class="icon-wrapper" style="transform: rotate(${{heading}}deg);"><svg width="24" height="24" viewBox="0 0 20 20"><polygon points="10,0 2,20 10,15 18,20" fill="${{color}}" stroke="#1e272c" stroke-width="1.5" /></svg></div>`;
             return L.divIcon({{ className: '', html: html, iconSize: [24,24], iconAnchor: [12,12] }});
         }}
 
-        function getStatus(hist, rawVspeed) {{
+        // 2) 비행 중이 아닌 지상 기체용 회색 원형 아이콘
+        function getGroundIcon() {{
+            const html = `<div class="ground-icon-wrapper"><div class="ground-circle-marker"></div></div>`;
+            return L.divIcon({{ className: '', html: html, iconSize: [14, 14], iconAnchor: [7, 7] }});
+        }}
+
+        function getStatus(hist, rawVspeed, onGround) {{
+            if (onGround) {{
+                return {{ color: '#718096', text: 'Ground', fpmText: '0 fpm', vsFpm: 0 }};
+            }}
+
             let vsFpm = 0;
             if (rawVspeed !== null && rawVspeed !== undefined) {{
                 vsFpm = Math.round(rawVspeed);
@@ -643,9 +662,11 @@ radar_base_html = f"""
                 countIn100km++;
                 currentIcaos.add(icao);
 
+                const isCurrentlyGround = (p.on_ground || (p.alt <= 100 && p.spd < 45));
+
                 if (!flightHistory[icao]) {{
                     flightHistory[icao] = [];
-                    if (p.alt > 0 && p.spd > 100) {{
+                    if (!isCurrentlyGround && p.alt > 0 && p.spd > 100) {{
                         const rad = p.track * Math.PI / 180;
                         const backRad = (rad + Math.PI) % (2 * Math.PI);
                         [30, 15].forEach(pastSec => {{
@@ -654,7 +675,7 @@ radar_base_html = f"""
                             const pLat = Math.asin(Math.sin(p.lat * Math.PI / 180) * Math.cos(d) +
                                          Math.cos(p.lat * Math.PI / 180) * Math.sin(d) * Math.cos(backRad));
                             const pLon = (p.lon * Math.PI / 180) + Math.atan2(
-                                Math.sin(backRad) * Math.sin(d) * Math.cos(acLat = p.lat * Math.PI / 180),
+                                Math.sin(backRad) * Math.sin(d) * Math.cos(p.lat * Math.PI / 180),
                                 Math.cos(d) - Math.sin(p.lat * Math.PI / 180) * Math.sin(pLat)
                             );
                             flightHistory[icao].push({{
@@ -671,17 +692,19 @@ radar_base_html = f"""
                     lat: p.lat, lon: p.lon, alt: p.alt, spd: p.spd,
                     track: p.track, callsign: p.callsign, airline: p.airline, type: p.type,
                     vspeed: p.vspeed, origin: p.origin, destination: p.destination,
-                    on_ground: p.on_ground, time: now
+                    on_ground: isCurrentlyGround, time: now
                 }});
 
                 flightHistory[icao] = flightHistory[icao].filter(pt => now - pt.time <= 600000);
                 if (flightHistory[icao].length > 80) flightHistory[icao].shift();
 
                 const hist = flightHistory[icao];
-                const statusObj = getStatus(hist, p.vspeed);
+                const statusObj = getStatus(hist, p.vspeed, isCurrentlyGround);
                 const isSelected = (selectedIcao === icao);
 
-                const newIcon = getIcon(p.track, statusObj.color);
+                // 지상 기체는 회색 원형 아이콘, 비행 중인 기체는 방향 화살표 아이콘 적용
+                const newIcon = isCurrentlyGround ? getGroundIcon() : getIcon(p.track, statusObj.color);
+
                 if (markers[icao]) {{
                     markers[icao].setLatLng([p.lat, p.lon]);
                     markers[icao].setIcon(newIcon);
@@ -724,7 +747,7 @@ radar_base_html = f"""
                     markers[icao].bindTooltip(`<b>${{p.callsign}}</b><br>${{Math.round(p.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
                 }}
 
-                // 4단계 청킹 기반 페이드아웃 항적선 렌더링
+                // 항적선 렌더링
                 if (!polylineGroups[icao]) {{
                     polylineGroups[icao] = [null, null, null, null];
                 }}
@@ -732,7 +755,8 @@ radar_base_html = f"""
                 const pts = hist.map(pt => [pt.lat, pt.lon]);
                 const totalPts = pts.length;
 
-                if (totalPts >= 2) {{
+                // 비행 중인 기체만 항적선 표출 (지상 계류/활주 시 항적선 정리)
+                if (!isCurrentlyGround && totalPts >= 2) {{
                     const chunkSize = Math.max(1, Math.floor(totalPts / 4));
                     for (let c = 0; c < 4; c++) {{
                         const startIdx = Math.min(c * chunkSize, totalPts - 1);
@@ -763,6 +787,12 @@ radar_base_html = f"""
                             polylineGroups[icao][c] = null;
                         }}
                     }}
+                }} else {{
+                    // 지상 기체일 경우 기존 항적선 소거
+                    polylineGroups[icao].forEach(pLine => {{
+                        if (pLine) map.removeLayer(pLine);
+                    }});
+                    polylineGroups[icao] = [null, null, null, null];
                 }}
             }});
 

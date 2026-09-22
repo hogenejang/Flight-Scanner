@@ -179,26 +179,6 @@ if "lat" in qp and "lon" in qp:
     except Exception:
         pass
 
-with st.sidebar:
-    st.header("⚙️ Radar Settings")
-    st.info("지도 위를 더블클릭/더블탭하거나 프리셋을 누르면 해당 지역으로 즉시 이동합니다.")
-    st.markdown("### 📍 Location Presets")
-    if st.button("🏠 기본 홈포인트 복귀", use_container_width=True):
-        st.session_state.home_coords = [37.151575, 126.743044]
-        st.rerun()
-    if st.button("🇰🇷 인천 국제공항 (RKSI)", use_container_width=True):
-        st.session_state.home_coords = [37.4600, 126.4400]
-        st.rerun()
-    if st.button("🇰🇷 김포 국제공항 (RKSS)", use_container_width=True):
-        st.session_state.home_coords = [37.5583, 126.7906]
-        st.rerun()
-    if st.button("⚓ 김해 국제공항 (RKPK)", use_container_width=True):
-        st.session_state.home_coords = [35.1728, 128.9392]
-        st.rerun()
-    if st.button("🌴 제주 국제공항 (RKPC)", use_container_width=True):
-        st.session_state.home_coords = [33.5113, 126.4930]
-        st.rerun()
-
 h_lat, h_lon = st.session_state.home_coords[0], st.session_state.home_coords[1]
 
 # 4. 지도 프레임 렌더링
@@ -214,14 +194,34 @@ radar_base_html = f"""
         body, html {{ margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
         #map {{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #e5e9ec; }}
         
-        .top-hud {{
-            position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000;
-            display: flex; justify-content: space-between; align-items: center; pointer-events: none;
+        .top-hud-container {{
+            position: absolute; top: 10px; left: 10px; right: 10px; z-index: 1000;
+            display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+        }}
+        .hud-row {{
+            display: flex; justify-content: space-between; align-items: center; width: 100%; pointer-events: none;
         }}
         .hud-box {{
-            background: rgba(255, 255, 255, 0.95); padding: 8px 14px; border-radius: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.18); font-size: 13px; font-weight: bold; color: #2c3e50;
-            pointer-events: auto; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(0,0,0,0.08);
+            background: rgba(255, 255, 255, 0.95); padding: 7px 12px; border-radius: 18px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.18); font-size: 12px; font-weight: bold; color: #2c3e50;
+            pointer-events: auto; display: flex; align-items: center; gap: 6px; border: 1px solid rgba(0,0,0,0.08);
+            backdrop-filter: blur(6px);
+        }}
+
+        /* 모바일 최적화 인맵 플로팅 프리셋 바 */
+        .preset-bar {{
+            display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+            padding: 3px 2px; pointer-events: auto; scrollbar-width: none;
+        }}
+        .preset-bar::-webkit-scrollbar {{ display: none; }}
+        .preset-btn {{
+            background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.15);
+            color: #1a202c; padding: 6px 12px; border-radius: 14px; font-size: 11px;
+            font-weight: 800; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            cursor: pointer; transition: all 0.15s ease; backdrop-filter: blur(6px);
+        }}
+        .preset-btn:active {{
+            transform: scale(0.94); background: #edf2f7;
         }}
         
         .icon-wrapper {{
@@ -290,12 +290,23 @@ radar_base_html = f"""
 <body>
     <div id="map"></div>
 
-    <div class="top-hud">
-        <div class="hud-box" id="status-box">📡 100km 레이더 가동 중...</div>
-        <div class="hud-box">
-            <span style="color:#2ecc71;">● 수평</span>
-            <span style="color:#f1c40f;">● 상승</span>
-            <span style="color:#3498db;">● 하강</span>
+    <div class="top-hud-container">
+        <!-- 1행: 상태 표시 및 VSpeed 범례 -->
+        <div class="hud-row">
+            <div class="hud-box" id="status-box">📡 100km 레이더 가동 중...</div>
+            <div class="hud-box">
+                <span style="color:#2ecc71;">● 수평</span>
+                <span style="color:#f1c40f;">● 상승</span>
+                <span style="color:#3498db;">● 하강</span>
+            </div>
+        </div>
+        <!-- 2행: 모바일/데스크톱 공용 원클릭 공항 프리셋 버튼 바 -->
+        <div class="preset-bar">
+            <button class="preset-btn" onclick="relocateHome(37.151575, 126.743044)">🏠 HOME</button>
+            <button class="preset-btn" onclick="relocateHome(37.4600, 126.4400)">인천 RKSI</button>
+            <button class="preset-btn" onclick="relocateHome(37.5583, 126.7906)">김포 RKSS</button>
+            <button class="preset-btn" onclick="relocateHome(35.1728, 128.9392)">김해 RKPK</button>
+            <button class="preset-btn" onclick="relocateHome(33.5113, 126.4930)">제주 RKPC</button>
         </div>
     </div>
 
@@ -471,7 +482,7 @@ radar_base_html = f"""
         let polylineGroups = {{}};
         let selectedIcao = null;
 
-        // 시인성 강화: 4단계 청크별 스타일 (오래됨 -> 최신)
+        // 시인성 강화 청크 설정 (오래됨 -> 최신)
         const CHUNK_CONFIGS = [
             {{ opacity: 0.35, weight: 2.5 }},
             {{ opacity: 0.60, weight: 3.5 }},
@@ -654,9 +665,7 @@ radar_base_html = f"""
                     markers[icao].bindTooltip(`<b>${{p.callsign}}</b><br>${{Math.round(p.alt).toLocaleString()}} ft`, {{ direction: 'top' }});
                 }}
 
-                // -------------------------------------------------------------
-                // 4단계 청킹 기반 페이드아웃 항적선 렌더링 (시인성 강화)
-                // -------------------------------------------------------------
+                // 4단계 청킹 기반 페이드아웃 항적선 렌더링
                 if (!polylineGroups[icao]) {{
                     polylineGroups[icao] = [null, null, null, null];
                 }}
@@ -721,7 +730,8 @@ radar_base_html = f"""
             }}
         }};
 
-        function relocateHome(newLat, newLon) {{
+        // 즉각 반응형 홈포인트 리로케이션 함수
+        window.relocateHome = function(newLat, newLon) {{
             homeLat = newLat;
             homeLon = newLon;
             homeMarker.setLatLng([homeLat, homeLon]);
@@ -746,7 +756,7 @@ radar_base_html = f"""
                 parentUrl.searchParams.set("lon", newLon.toFixed(4));
                 window.parent.history.replaceState(null, "", parentUrl.toString());
             }} catch (e) {{}}
-        }}
+        }};
 
         map.on('dblclick', function(e) {{
             relocateHome(e.latlng.lat, e.latlng.lng);
@@ -767,7 +777,7 @@ radar_base_html = f"""
 
 components.html(radar_base_html, height=850, scrolling=False)
 
-# 5. 실시간 브릿지 프래그먼트 (5초마다 백엔드 동기화)
+# 5. 실시간 백엔드 데이터 스트림 브릿지
 @st.fragment(run_every="5s")
 def sync_data_stream():
     lat = st.session_state.home_coords[0]

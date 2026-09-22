@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (반경 100km = 약 54nm)
+# 2. 백엔드 데이터 수집 (출/도착지 및 지상접지 여부 추출 반영)
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -116,6 +116,12 @@ def fetch_flight_data(lat, lon):
                     continue
                 callsign = (v[13] or v[16] or v[0] or "").strip()
                 vspeed = v[15] if len(v) > 15 and v[15] is not None else None
+                
+                # 출/도착지 및 지상접지 여부 파싱
+                origin = v[11] if len(v) > 11 and v[11] else ""
+                destination = v[12] if len(v) > 12 and v[12] else ""
+                on_ground = bool(v[14]) if len(v) > 14 and v[14] is not None else False
+                
                 planes.append({
                     "hex": str(v[0]).upper(),
                     "lat": v[1],
@@ -126,7 +132,10 @@ def fetch_flight_data(lat, lon):
                     "vspeed": vspeed,
                     "type": v[8] or "N/A",
                     "callsign": callsign,
-                    "airline": resolve_airline_name(callsign)
+                    "airline": resolve_airline_name(callsign),
+                    "origin": origin,
+                    "destination": destination,
+                    "on_ground": on_ground
                 })
             if planes:
                 return planes, "Flightradar24"
@@ -142,7 +151,8 @@ def fetch_flight_data(lat, lon):
             for v in data.get("ac", []):
                 callsign = v.get("flight", "").strip()
                 alt = v.get("alt_baro", 0)
-                if alt == "ground" or alt is None: 
+                is_ground = (alt == "ground")
+                if is_ground or alt is None: 
                     alt = 0
                 vspeed = v.get("baro_rate") if v.get("baro_rate") is not None else v.get("geom_rate")
                 planes.append({
@@ -155,7 +165,10 @@ def fetch_flight_data(lat, lon):
                     "vspeed": vspeed,
                     "type": v.get("t", "N/A"),
                     "callsign": callsign,
-                    "airline": resolve_airline_name(callsign)
+                    "airline": resolve_airline_name(callsign),
+                    "origin": "",
+                    "destination": "",
+                    "on_ground": is_ground
                 })
             return planes, "Airplanes.live"
     except Exception:
@@ -208,7 +221,6 @@ radar_base_html = f"""
             backdrop-filter: blur(6px);
         }}
 
-        /* 모바일 최적화 인맵 플로팅 프리셋 바 */
         .preset-bar {{
             display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
             padding: 3px 2px; pointer-events: auto; scrollbar-width: none;
@@ -236,7 +248,7 @@ radar_base_html = f"""
             box-shadow: 0 8px 24px rgba(0,0,0,0.22) !important;
             padding: 10px 14px !important;
             color: #2c3e50 !important;
-            min-width: 200px !important;
+            min-width: 210px !important;
             backdrop-filter: blur(8px) !important;
             pointer-events: auto !important;
         }}
@@ -244,7 +256,15 @@ radar_base_html = f"""
         .card-header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #edf2f7; padding-bottom: 5px; margin-bottom: 6px; gap: 8px; }}
         .card-callsign {{ font-size: 18px; font-weight: 900; color: #e74c3c; line-height: 1; }}
         .card-type {{ font-size: 10px; font-weight: bold; background: #edf2f7; padding: 2px 6px; border-radius: 4px; color: #4a5568; }}
-        .card-airline {{ font-size: 13px; font-weight: 800; color: #1a365d; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }}
+        .card-airline {{ font-size: 13px; font-weight: 800; color: #1a365d; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }}
+        
+        /* 출/도착지 및 지상접지 뱃지 스타일 */
+        .card-route-row {{ display: flex; justify-content: space-between; align-items: center; background: #f7fafc; padding: 4px 8px; border-radius: 6px; margin-bottom: 8px; font-size: 11px; }}
+        .card-route {{ font-weight: 800; color: #2b6cb0; }}
+        .card-ground-status {{ font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }}
+        .ground-air {{ background: #e6fffa; color: #234e52; }}
+        .ground-on {{ background: #feebc8; color: #7b341e; }}
+
         .card-metrics {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px; }}
         .card-metrics div {{ display: flex; flex-direction: column; }}
         .card-label {{ font-size: 9px; color: #a0aec0; text-transform: uppercase; font-weight: 700; margin-bottom: 1px; }}
@@ -291,7 +311,6 @@ radar_base_html = f"""
     <div id="map"></div>
 
     <div class="top-hud-container">
-        <!-- 1행: 상태 표시 및 VSpeed 범례 -->
         <div class="hud-row">
             <div class="hud-box" id="status-box">📡 100km 레이더 가동 중...</div>
             <div class="hud-box">
@@ -300,7 +319,6 @@ radar_base_html = f"""
                 <span style="color:#3498db;">● 하강</span>
             </div>
         </div>
-        <!-- 2행: 모바일/데스크톱 공용 원클릭 공항 프리셋 버튼 바 -->
         <div class="preset-bar">
             <button class="preset-btn" onclick="relocateHome(37.151575, 126.743044)">🏠 HOME</button>
             <button class="preset-btn" onclick="relocateHome(37.4600, 126.4400)">인천 RKSI</button>
@@ -348,7 +366,7 @@ radar_base_html = f"""
         // -------------------------------------------------------------
         const permanentFixLayer = L.layerGroup().addTo(map);
 
-        // 1. Y711 (남행: BULTI ~ DOTOL 구간 선분)
+        // 1. Y711 (남행: BULTI ~ DOTOL 구간)
         const y711Path = [
             {{ name: "BULTI", pos: [36.722778, 126.825000], type: "Y711", note: "아산/예산 경계 (Y711 시발점)" }},
             {{ name: "MEKIL", pos: [36.556111, 126.831389], type: "Y711", note: "청양 북동부" }},
@@ -376,7 +394,7 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 2. Y722 (북행: KAMIT ~ OLMEN 구간 선분)
+        // 2. Y722 (북행: KAMIT ~ OLMEN 구간)
         const y722Path = [
             {{ name: "KAMIT", pos: [34.253889, 126.771667], type: "Y722", note: "완도 여서도 북동 해상 (Y722 시발점)" }},
             {{ name: "MAKSA", pos: [35.503056, 126.906111], type: "Y722", note: "정읍 신태인" }},
@@ -402,8 +420,21 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 3. 주요 터미널 및 신규 교차검증 픽스
+        // 3. 주요 터미널 및 제주공항(RKPC) 교차검증 정밀 STAR 픽스
         const terminalFixes = [
+            // [제주 RKPC 정밀 교차검증 STAR 픽스]
+            {{ name: "DOTOL", pos: [34.254278, 126.610167], type: "STAR", note: "내륙-제주 STAR 주진입 회랑점" }},
+            {{ name: "PANSI", pos: [33.880000, 126.540000], type: "STAR", note: "추자-제주 북부 해상 중간 강하점" }},
+            {{ name: "TIXIM", pos: [33.683333, 126.516667], type: "STAR", note: "제주 북부 접근 전이 픽스" }},
+            {{ name: "PABSO", pos: [33.493333, 126.430000], type: "IAF", note: "제주 RWY 07 진입 계기접근점" }},
+            {{ name: "PC701", pos: [33.498333, 126.385000], type: "IF", note: "제주 RWY 07 최종정렬 중간접근점" }},
+            {{ name: "LAVAR", pos: [33.528333, 126.556667], type: "IAF", note: "제주 RWY 25 진입 계기접근점" }},
+            {{ name: "PC702", pos: [33.535000, 126.610000], type: "IF", note: "제주 RWY 25 최종정렬 중간접근점" }},
+            {{ name: "SARAS", pos: [33.450000, 126.850000], type: "STAR", note: "성산일출봉 동측 해상 (동부 진입)" }},
+            {{ name: "TAMNA", pos: [33.470833, 127.331389], type: "STAR/SID", note: "제주 동쪽 외해 (A595 항로 픽스)" }},
+            {{ name: "SOSDO", pos: [33.003333, 126.459722], type: "STAR/SID", note: "제주 남단 마라도 남서 해상 (B576/Y722)" }},
+
+            // [수도권 및 기타 교차검증 픽스]
             {{ name: "POLEG", pos: [37.213611, 126.993056], type: "FIX", note: "수원 영통 / 화성 반월 상공" }},
             {{ name: "POSAN", pos: [36.937500, 127.221111], type: "FIX", note: "천안 동남구 북면 / 진천 경계" }},
             {{ name: "OSPOT", pos: [36.838333, 127.348611], type: "SID/FIX", note: "청주 오창읍 / 진천 초평 경계" }},
@@ -414,28 +445,24 @@ radar_base_html = f"""
             {{ name: "SONGTAN", pos: [37.090500, 127.028944], type: "VOR/DME", note: "평택 송탄 오산기지 VORTAC (SOT)" }},
             {{ name: "MONSI", pos: [37.213056, 126.837500], type: "FIX", note: "화성 비봉 상공" }},
             {{ name: "SEL", pos: [37.413694, 126.928444], type: "VOR/DME", note: "안양 관악산 VOR/DME" }},
-            {{ name: "BOPTA", pos: [37.073333, 126.241667], type: "SID", note: "서산 북서 대산반도 외해 (인천 남서 SID)" }},
+            {{ name: "BOPTA", pos: [37.073333, 126.241667], type: "SID", note: "서산 대산반도 외해 (인천 남서 SID)" }},
             {{ name: "NOUTE", pos: [37.216667, 125.866667], type: "SID", note: "굴업도 서쪽 서해 외해 (A593 출역점)" }},
-            {{ name: "KARAS", pos: [37.150000, 126.083333], type: "STAR", note: "덕적도 남서 해상 (인천 서해남부 진입)" }},
-            {{ name: "REKTO", pos: [37.272778, 126.155833], type: "IAF", note: "덕적도 동측 해상 (RWY 33/34 진입 IAF)" }},
-            {{ name: "OSPUR", pos: [37.683333, 126.266667], type: "IAF", note: "강화도 서측 해상 (RWY 15/16 진입 IAF)" }},
-            {{ name: "DANAN", pos: [37.601667, 126.335000], type: "IF", note: "인천 신도 북단 상공 (RWY 15L/R IF)" }},
+            {{ name: "KARAS", pos: [37.150000, 126.083333], type: "STAR", note: "덕적도 남서 해상 (인천 남서 진입)" }},
+            {{ name: "REKTO", pos: [37.272778, 126.155833], type: "IAF", note: "덕적도 동측 해상 (인천 33/34 IAF)" }},
+            {{ name: "OSPUR", pos: [37.683333, 126.266667], type: "IAF", note: "강화도 서측 해상 (인천 15/16 IAF)" }},
+            {{ name: "DANAN", pos: [37.601667, 126.335000], type: "IF", note: "인천 신도 북단 상공 (인천 15L/R IF)" }},
             {{ name: "SOTSU", pos: [37.300000, 126.900000], type: "SID", note: "군포/안산 경계 (남행 회랑 분기점)" }},
-            {{ name: "BULLS", pos: [37.274167, 127.355556], type: "STAR", note: "이천 마장면 상공 (수도권 남동 진입 STAR)" }},
+            {{ name: "BULLS", pos: [37.274167, 127.355556], type: "STAR", note: "이천 마장면 상공 (수도권 남동 진입)" }},
             {{ name: "YAGI", pos: [37.583333, 126.550000], type: "STAR", note: "청라국제도시 북측 (김포 서부 STAR)" }},
             {{ name: "SS801", pos: [37.485000, 126.865000], type: "IF", note: "광명/구로 경계 (김포 32L/R IF)" }},
+
+            // [김해 RKPK]
             {{ name: "PSN", pos: [35.173139, 128.939028], type: "VOR/NDB", note: "김해공항 구내 부산 VOR/DME" }},
             {{ name: "KAPLI", pos: [35.048333, 129.418333], type: "SID", note: "영도구 동남 외해 (일본/태평양 방면 출역)" }},
             {{ name: "BUSAN", pos: [34.908333, 128.986667], type: "SID", note: "거제도 동남 해상 (남해안 출발 전이점)" }},
             {{ name: "TOPAX", pos: [35.340000, 128.490000], type: "STAR", note: "창녕 남지읍 상공 (김해 북서 진입 STAR)" }},
             {{ name: "GAYHA", pos: [34.783333, 128.800000], type: "STAR", note: "거제시 남부 해상 (김해 남해안 진입 STAR)" }},
-            {{ name: "PK701", pos: [35.050000, 128.939167], type: "IF", note: "다대포 외해 (김해 RWY 36 정렬 IF)" }},
-            {{ name: "TAMNA", pos: [33.666944, 126.347778], type: "SID", note: "제주 한경면 북서 해상 (제주 북서 출발)" }},
-            {{ name: "MAKET", pos: [33.914444, 127.331389], type: "SID", note: "여수시 남동 해상 (제주 남동 태평양 SID)" }},
-            {{ name: "SOSDO", pos: [33.805833, 126.634722], type: "STAR", note: "추자도 남동 해상 (내륙발 제주 주력 도착점)" }},
-            {{ name: "SARAS", pos: [33.450000, 126.850000], type: "STAR", note: "성산일출봉 동측 해상 (동부 진입 STAR)" }},
-            {{ name: "PABSO", pos: [33.493333, 126.430000], type: "IAF/IF", note: "제주 애월읍 앞 해상 (RWY 07 계기접근)" }},
-            {{ name: "LAVAR", pos: [33.528333, 126.556667], type: "IAF/IF", note: "제주 조천읍 앞 해상 (RWY 25 계기접근)" }}
+            {{ name: "PK701", pos: [35.050000, 128.939167], type: "IF", note: "다대포 외해 (김해 RWY 36 정렬 IF)" }}
         ];
 
         const allPermanentFixes = [...y711Path, ...y722Path, ...terminalFixes];
@@ -475,14 +502,13 @@ radar_base_html = f"""
         }});
 
         // -------------------------------------------------------------
-        // 동적 항공기 추적 및 구간별(Chunking) 고성능 페이드아웃 엔진
+        // 동적 항공기 추적 및 고성능 페이드아웃 엔진
         // -------------------------------------------------------------
         let flightHistory = {{}};
         let markers = {{}};
         let polylineGroups = {{}};
         let selectedIcao = null;
 
-        // 시인성 강화 청크 설정 (오래됨 -> 최신)
         const CHUNK_CONFIGS = [
             {{ opacity: 0.35, weight: 2.5 }},
             {{ opacity: 0.60, weight: 3.5 }},
@@ -525,14 +551,33 @@ radar_base_html = f"""
             return {{ color, text, fpmText, vsFpm }};
         }}
 
+        // 출/도착지 및 지상접지 여부가 포함된 HUD 카드 템플릿
         function makeHudContent(p, statusObj) {{
             const airlineHtml = p.airline ? `<div class="card-airline">${{p.airline}}</div>` : '';
+            
+            let routeText = "정보 없음";
+            if (p.origin && p.destination) {{
+                routeText = `${{p.origin}} ➔ ${{p.destination}}`;
+            }} else if (p.origin) {{
+                routeText = `${{p.origin}} ➔ ?`;
+            }} else if (p.destination) {{
+                routeText = `? ➔ ${{p.destination}}`;
+            }}
+
+            const groundBadge = p.on_ground 
+                ? `<span class="card-ground-status ground-on">🛬 지상 활주 (GND)</span>`
+                : `<span class="card-ground-status ground-air">✈️ 비행 중 (AIR)</span>`;
+
             return `
             <div class="card-header">
                 <span class="card-callsign">${{p.callsign || p.hex}}</span>
                 <span class="card-type">${{p.type || 'N/A'}}</span>
             </div>
             ${{airlineHtml}}
+            <div class="card-route-row">
+                <span class="card-route">${{routeText}}</span>
+                ${{groundBadge}}
+            </div>
             <div class="card-metrics">
                 <div>
                     <span class="card-label">Altitude</span>
@@ -612,7 +657,8 @@ radar_base_html = f"""
                 flightHistory[icao].push({{
                     lat: p.lat, lon: p.lon, alt: p.alt, spd: p.spd,
                     track: p.track, callsign: p.callsign, airline: p.airline, type: p.type,
-                    vspeed: p.vspeed, time: now
+                    vspeed: p.vspeed, origin: p.origin, destination: p.destination,
+                    on_ground: p.on_ground, time: now
                 }});
 
                 flightHistory[icao] = flightHistory[icao].filter(pt => now - pt.time <= 600000);
@@ -777,7 +823,7 @@ radar_base_html = f"""
 
 components.html(radar_base_html, height=850, scrolling=False)
 
-# 5. 실시간 백엔드 데이터 스트림 브릿지
+# 5. 실시간 백엔드 데이터 스트림 브릿지 (5초 주기 동기화)
 @st.fragment(run_every="5s")
 def sync_data_stream():
     lat = st.session_state.home_coords[0]

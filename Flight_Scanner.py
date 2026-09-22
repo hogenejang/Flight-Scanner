@@ -95,7 +95,7 @@ def resolve_airline_name(callsign):
         return airlines_db[match.group(1)]
     return ""
 
-# 2. 백엔드 데이터 수집 (출/도착지 및 지상접지 여부 추출 반영)
+# 2. 백엔드 데이터 수집 (출/도착지 및 지상접지 여부)
 def fetch_flight_data(lat, lon):
     radius_nm = 54
     lat_diff = radius_nm / 60.0
@@ -117,7 +117,6 @@ def fetch_flight_data(lat, lon):
                 callsign = (v[13] or v[16] or v[0] or "").strip()
                 vspeed = v[15] if len(v) > 15 and v[15] is not None else None
                 
-                # 출/도착지 및 지상접지 여부 파싱
                 origin = v[11] if len(v) > 11 and v[11] else ""
                 destination = v[12] if len(v) > 12 and v[12] else ""
                 on_ground = bool(v[14]) if len(v) > 14 and v[14] is not None else False
@@ -258,7 +257,6 @@ radar_base_html = f"""
         .card-type {{ font-size: 10px; font-weight: bold; background: #edf2f7; padding: 2px 6px; border-radius: 4px; color: #4a5568; }}
         .card-airline {{ font-size: 13px; font-weight: 800; color: #1a365d; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }}
         
-        /* 출/도착지 및 지상접지 뱃지 스타일 */
         .card-route-row {{ display: flex; justify-content: space-between; align-items: center; background: #f7fafc; padding: 4px 8px; border-radius: 6px; margin-bottom: 8px; font-size: 11px; }}
         .card-route {{ font-weight: 800; color: #2b6cb0; }}
         .card-ground-status {{ font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; }}
@@ -279,6 +277,7 @@ radar_base_html = f"""
         .waypoint-dot-sid {{ background: #2b6cb0; }}
         .waypoint-dot-star {{ background: #2c7a7b; }}
         .waypoint-dot-app {{ background: #c53030; }}
+        .waypoint-dot-pms {{ background: #805ad5; }}
         .waypoint-dot-airway {{ background: #4a5568; width: 6px; height: 6px; }}
         
         .waypoint-label {{
@@ -420,9 +419,23 @@ radar_base_html = f"""
             interactive: false
         }}).addTo(permanentFixLayer);
 
-        // 3. 주요 터미널 및 제주공항(RKPC) 교차검증 정밀 STAR 픽스
+        // 3. 주요 터미널 및 제주공항(RKPC) 교차검증 픽스 (Point Merge 시퀀싱 아크 포함)
         const terminalFixes = [
-            // [제주 RKPC 정밀 교차검증 STAR 픽스]
+            // [제주 RKPC Point Merge System (PMS) 서부 시퀀싱 아크 & IAF]
+            {{ name: "BIROM", pos: [33.792778, 126.386111], type: "STAR", note: "제주 북서 해상 (추자-제주 서부 입역 픽스)" }},
+            {{ name: "LIMDI", pos: [33.545000, 126.170833], type: "STAR", note: "제주 한림 서북 외해 (서부 입역 STAR)" }},
+            {{ name: "PC621", pos: [33.740833, 126.224722], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 1번점" }},
+            {{ name: "PC622", pos: [33.729444, 126.125833], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 2번점" }},
+            {{ name: "PC623", pos: [33.694444, 126.035000], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 3번점" }},
+            {{ name: "PC624", pos: [33.638889, 125.960556], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 4번점" }},
+            {{ name: "PC625", pos: [33.567500, 125.908889], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 5번점" }},
+            {{ name: "PC626", pos: [33.486667, 125.884167], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 6번점" }},
+            {{ name: "DAKPI", pos: [33.403333, 125.888611], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 7번점 (PC627)" }},
+            {{ name: "PC628", pos: [33.324444, 125.921944], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 8번점" }},
+            {{ name: "PIMIK", pos: [33.257222, 125.980833], type: "PMS", note: "RWY 07 PMS 시퀀싱 아크 종점 (구 MEDON)" }},
+            {{ name: "YUMIN", pos: [33.457222, 126.221111], type: "IAF/MP", note: "RWY 07 계기접근 Merge Point (IAF)" }},
+
+            // [제주 RKPC 기타 STAR / 접근 픽스]
             {{ name: "DOTOL", pos: [34.254278, 126.610167], type: "STAR", note: "내륙-제주 STAR 주진입 회랑점" }},
             {{ name: "PANSI", pos: [33.880000, 126.540000], type: "STAR", note: "추자-제주 북부 해상 중간 강하점" }},
             {{ name: "TIXIM", pos: [33.683333, 126.516667], type: "STAR", note: "제주 북부 접근 전이 픽스" }},
@@ -475,7 +488,8 @@ radar_base_html = f"""
             let dotTypeClass = 'waypoint-dot';
             if (wp.type.includes('SID')) dotTypeClass += ' waypoint-dot-sid';
             else if (wp.type.includes('STAR')) dotTypeClass += ' waypoint-dot-star';
-            else if (wp.type.includes('IAF') || wp.type.includes('IF')) dotTypeClass += ' waypoint-dot-app';
+            else if (wp.type.includes('PMS')) dotTypeClass += ' waypoint-dot-pms';
+            else if (wp.type.includes('IAF') || wp.type.includes('IF') || wp.type.includes('MP')) dotTypeClass += ' waypoint-dot-app';
             else if (wp.type.startsWith('Y7')) dotTypeClass += ' waypoint-dot-airway';
 
             const marker = L.marker(wp.pos, {{
@@ -551,7 +565,6 @@ radar_base_html = f"""
             return {{ color, text, fpmText, vsFpm }};
         }}
 
-        // 출/도착지 및 지상접지 여부가 포함된 HUD 카드 템플릿
         function makeHudContent(p, statusObj) {{
             const airlineHtml = p.airline ? `<div class="card-airline">${{p.airline}}</div>` : '';
             
@@ -776,7 +789,6 @@ radar_base_html = f"""
             }}
         }};
 
-        // 즉각 반응형 홈포인트 리로케이션 함수
         window.relocateHome = function(newLat, newLon) {{
             homeLat = newLat;
             homeLon = newLon;
@@ -823,7 +835,7 @@ radar_base_html = f"""
 
 components.html(radar_base_html, height=850, scrolling=False)
 
-# 5. 실시간 백엔드 데이터 스트림 브릿지 (5초 주기 동기화)
+# 5. 실시간 백엔드 데이터 스트림 브릿지
 @st.fragment(run_every="5s")
 def sync_data_stream():
     lat = st.session_state.home_coords[0]
